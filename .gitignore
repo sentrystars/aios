@@ -1,0 +1,31 @@
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+
+# Packaging metadata
+*.egg-info/
+build/
+dist/
+
+# Local runtime state
+.ai_os/
+.data/
+.tmpdata/
+.tmpdata2/
+.tmpworkspace*/
+
+# Generated artifacts and scratch space
+artifacts/
+scratch/
+
+# Local editor / macOS noise
+.idea/
+.vscode/
