@@ -14,6 +14,7 @@ venv/
 *.egg-info/
 build/
 dist/
+.build/
 
 # Local runtime state
 .ai_os/
@@ -29,3 +30,6 @@ scratch/
 # Local editor / macOS noise
 .idea/
 .vscode/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/

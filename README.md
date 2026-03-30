@@ -20,7 +20,7 @@ The MVP implements:
 python -m venv .venv
 source .venv/bin/activate
 pip install -e .
-uvicorn main:app --reload
+uvicorn main:app --reload --port 8787
 ```
 
 ## Key Endpoints
