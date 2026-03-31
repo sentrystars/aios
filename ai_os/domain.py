@@ -48,6 +48,7 @@ class ExecutionMode(str, Enum):
     MEMORY_CAPTURE = "memory_capture"
     MESSAGE_DRAFT = "message_draft"
     REMINDER = "reminder"
+    CALENDAR_EVENT = "calendar_event"
 
 
 class ExecutionStep(BaseModel):
@@ -63,6 +64,22 @@ class ExecutionPlan(BaseModel):
     expected_evidence: list[str] = Field(default_factory=list)
 
 
+class PersonaAnchor(BaseModel):
+    identity_statement: str = "A local-first personal intelligence system."
+    tone: str = "clear, direct, pragmatic"
+    non_negotiables: list[str] = Field(default_factory=list)
+    default_planning_style: str = "goal-first"
+    autonomy_preference: str = "controlled_autonomy"
+
+
+class SessionContext(BaseModel):
+    active_focus: list[str] = Field(default_factory=list)
+    open_loops: list[str] = Field(default_factory=list)
+    recent_decisions: list[str] = Field(default_factory=list)
+    current_commitments: list[str] = Field(default_factory=list)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
 class SelfProfile(BaseModel):
     long_term_goals: list[str] = Field(default_factory=list)
     current_phase: str = "bootstrap"
@@ -71,7 +88,19 @@ class SelfProfile(BaseModel):
     risk_style: str = "balanced"
     boundaries: list[str] = Field(default_factory=list)
     relationship_network: list[str] = Field(default_factory=list)
+    persona_anchor: PersonaAnchor = Field(default_factory=PersonaAnchor)
+    session_context: SessionContext = Field(default_factory=SessionContext)
     updated_at: datetime = Field(default_factory=utc_now)
+
+
+class StructuredUnderstanding(BaseModel):
+    requested_outcome: str
+    success_shape: str
+    explicit_constraints: list[str] = Field(default_factory=list)
+    inferred_constraints: list[str] = Field(default_factory=list)
+    stakeholders: list[str] = Field(default_factory=list)
+    time_horizon: str = "unspecified"
+    continuation_preference: str = "continue_existing_work_if_possible"
 
 
 class IntentEnvelope(BaseModel):
@@ -109,6 +138,7 @@ class CognitionReport(BaseModel):
     commonsense: CommonsenseAssessment
     insight: InsightAssessment
     courage: CourageAssessment
+    understanding: StructuredUnderstanding
     suggested_execution_mode: ExecutionMode
     suggested_execution_plan: ExecutionPlan
     suggested_task_tags: list[str] = Field(default_factory=list)
@@ -122,12 +152,23 @@ class IntakeResponse(BaseModel):
     task: "TaskRecord | None" = None
 
 
+class MemoryLayer(str, Enum):
+    EPISODIC = "episodic"
+    SEMANTIC = "semantic"
+    PROCEDURAL = "procedural"
+
+
 class MemoryRecord(BaseModel):
     id: str
     memory_type: MemoryType
+    layer: MemoryLayer = MemoryLayer.SEMANTIC
     title: str
     content: str
     tags: list[str] = Field(default_factory=list)
+    source: str = "user"
+    confidence: float = Field(default=0.8, ge=0.0, le=1.0)
+    freshness: str = "active"
+    related_goal_ids: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=utc_now)
 
 
@@ -145,6 +186,7 @@ class TaskRecord(BaseModel):
     execution_plan: ExecutionPlan = Field(default_factory=lambda: ExecutionPlan(mode=ExecutionMode.FILE_ARTIFACT))
     rollback_plan: str | None = None
     blocker_reason: str | None = None
+    linked_goal_ids: list[str] = Field(default_factory=list)
     artifact_paths: list[str] = Field(default_factory=list)
     verification_notes: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=utc_now)
@@ -155,6 +197,10 @@ class CapabilityDescriptor(BaseModel):
     name: str
     description: str
     risk_level: RiskLevel = RiskLevel.LOW
+    confirmation_required: bool = False
+    scopes: list[str] = Field(default_factory=list)
+    device_affinity: list[str] = Field(default_factory=list)
+    evidence_outputs: list[str] = Field(default_factory=list)
 
 
 class CapabilityExecutionPayload(BaseModel):
@@ -180,6 +226,7 @@ class TaskCreatePayload(BaseModel):
     tags: list[str] = Field(default_factory=list)
     success_criteria: list[str] = Field(default_factory=list)
     risk_level: RiskLevel = RiskLevel.LOW
+    linked_goal_ids: list[str] = Field(default_factory=list)
     execution_mode: ExecutionMode | None = None
     execution_plan: ExecutionPlan | None = None
     rollback_plan: str | None = None
@@ -210,6 +257,11 @@ class MemoryCreatePayload(BaseModel):
     title: str
     content: str
     tags: list[str] = Field(default_factory=list)
+    layer: MemoryLayer = MemoryLayer.SEMANTIC
+    source: str = "user"
+    confidence: float = Field(default=0.8, ge=0.0, le=1.0)
+    freshness: str = "active"
+    related_goal_ids: list[str] = Field(default_factory=list)
 
 
 class EventRecord(BaseModel):
@@ -237,6 +289,114 @@ class ExecutionRunRecord(BaseModel):
     started_at: datetime = Field(default_factory=utc_now)
     completed_at: datetime | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class GoalStatus(str, Enum):
+    ACTIVE = "active"
+    ON_HOLD = "on_hold"
+    DONE = "done"
+    ARCHIVED = "archived"
+
+
+class GoalKind(str, Enum):
+    NORTH_STAR = "north_star"
+    INITIATIVE = "initiative"
+    PROJECT = "project"
+
+
+class GoalRecord(BaseModel):
+    id: str
+    title: str
+    kind: GoalKind = GoalKind.PROJECT
+    status: GoalStatus = GoalStatus.ACTIVE
+    horizon: str = "current"
+    summary: str = ""
+    success_metrics: list[str] = Field(default_factory=list)
+    parent_goal_id: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    priority: int = Field(default=3, ge=1, le=5)
+    progress: float = Field(default=0.0, ge=0.0, le=1.0)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class GoalCreatePayload(BaseModel):
+    title: str
+    kind: GoalKind = GoalKind.PROJECT
+    status: GoalStatus = GoalStatus.ACTIVE
+    horizon: str = "current"
+    summary: str = ""
+    success_metrics: list[str] = Field(default_factory=list)
+    parent_goal_id: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    priority: int = Field(default=3, ge=1, le=5)
+    progress: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class GoalUpdatePayload(BaseModel):
+    title: str | None = None
+    status: GoalStatus | None = None
+    summary: str | None = None
+    success_metrics: list[str] | None = None
+    tags: list[str] | None = None
+    priority: int | None = Field(default=None, ge=1, le=5)
+    progress: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
+class GoalPlanResult(BaseModel):
+    goal_id: str
+    created_tasks: list["TaskRecord"] = Field(default_factory=list)
+    summary: str
+
+
+class DeviceStatus(str, Enum):
+    ACTIVE = "active"
+    IDLE = "idle"
+    UNAVAILABLE = "unavailable"
+
+
+class DeviceRecord(BaseModel):
+    id: str
+    name: str
+    device_class: str
+    status: DeviceStatus = DeviceStatus.ACTIVE
+    capabilities: list[str] = Field(default_factory=list)
+    last_seen_at: datetime = Field(default_factory=utc_now)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class DeviceUpsertPayload(BaseModel):
+    id: str
+    name: str
+    device_class: str
+    status: DeviceStatus = DeviceStatus.ACTIVE
+    capabilities: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class MemoryRecallItem(BaseModel):
+    memory_id: str
+    title: str
+    layer: MemoryLayer
+    score: float = Field(ge=0.0, le=1.0)
+    reason: str
+
+
+class MemoryRecallResponse(BaseModel):
+    query: str
+    items: list[MemoryRecallItem] = Field(default_factory=list)
+
+
+class CalendarEventRecord(BaseModel):
+    id: str
+    title: str
+    note: str = ""
+    due_hint: str = "unspecified"
+    scheduled_for: datetime
+    duration_minutes: int = Field(default=30, ge=1, le=1440)
+    source_task_id: str | None = None
+    origin: str | None = None
+    last_seen_at: datetime | None = None
 
 
 class EntityRelation(BaseModel):

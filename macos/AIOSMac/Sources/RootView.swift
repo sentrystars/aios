@@ -252,6 +252,8 @@ private struct OverviewView: View {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 16)], spacing: 16) {
                     MetricCard(title: appState.text("Current Phase", "当前阶段"), value: appState.selfProfile.currentPhase.capitalized, accent: Brand.pine)
                     MetricCard(title: appState.text("Risk Style", "风险风格"), value: appState.selfProfile.riskStyle.capitalized, accent: Brand.amber)
+                    MetricCard(title: appState.text("Goal Graph", "目标图谱"), value: "\(appState.goals.count)", accent: Brand.pine)
+                    MetricCard(title: appState.text("Devices", "设备"), value: "\(appState.devices.count)", accent: Brand.mint)
                     MetricCard(title: appState.text("Open Tasks", "进行中任务"), value: "\(appState.tasks.filter { $0.status != "done" && $0.status != "archived" }.count)", accent: Brand.mint)
                     MetricCard(title: appState.text("Memory Records", "记忆记录"), value: "\(appState.memories.count)", accent: Brand.ink)
                     MetricCard(title: appState.text("Capabilities", "能力"), value: "\(appState.capabilities.count)", accent: Brand.pine)
@@ -270,11 +272,30 @@ private struct OverviewView: View {
                 }
 
                 HStack(alignment: .top, spacing: 16) {
+                    GlassPanel(title: appState.text("Persona Anchor", "人格锚点")) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            overviewLine(appState.text("Identity", "身份"), appState.selfProfile.personaAnchor.identityStatement)
+                            overviewLine(appState.text("Tone", "语气"), appState.selfProfile.personaAnchor.tone)
+                            overviewLine(appState.text("Planning Style", "规划风格"), appState.selfProfile.personaAnchor.defaultPlanningStyle)
+                            overviewLine(appState.text("Autonomy", "自治方式"), appState.selfProfile.personaAnchor.autonomyPreference)
+                        }
+                    }
+                    GlassPanel(title: appState.text("Session Runtime", "会话运行时")) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            TagCloud(items: appState.selfProfile.sessionContext.activeFocus, emptyText: appState.text("No active focus.", "当前没有焦点。"))
+                            TagCloud(items: appState.selfProfile.sessionContext.currentCommitments, emptyText: appState.text("No commitments.", "当前没有承诺。"))
+                        }
+                    }
+                }
+
+                HStack(alignment: .top, spacing: 16) {
                     GlassPanel(title: appState.text("Recent Intake", "最近 Intake")) {
                         if let intake = appState.latestIntakeResponse {
                             VStack(alignment: .leading, spacing: 10) {
                                 overviewLine(appState.text("Intent", "意图"), appState.displayToken(intake.intent.intentType))
                                 overviewLine(appState.text("Goal", "目标"), intake.intent.goal)
+                                overviewLine(appState.text("Requested Outcome", "期望结果"), intake.cognition.understanding.requestedOutcome)
+                                overviewLine(appState.text("Time Horizon", "时间跨度"), intake.cognition.understanding.timeHorizon)
                                 overviewLine(appState.text("Mode", "模式"), appState.displayToken(intake.cognition.suggestedExecutionMode, category: .executionMode))
                                 overviewLine(appState.text("Next Step", "下一步"), intake.cognition.suggestedNextStep)
                                 if !intake.cognition.suggestedTaskTags.isEmpty {
@@ -347,9 +368,64 @@ private struct OverviewView: View {
                                             Text(capability.description)
                                                 .foregroundStyle(.secondary)
                                                 .lineLimit(2)
+                                            if !capability.scopes.isEmpty {
+                                                Text(capability.scopes.joined(separator: ", "))
+                                                    .font(.caption)
+                                                    .foregroundStyle(.secondary)
+                                            }
                                         }
                                         Spacer()
                                         StatusBadge(label: appState.displayToken(capability.riskLevel, category: .riskLevel), color: capabilityRiskColor(capability.riskLevel))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                HStack(alignment: .top, spacing: 16) {
+                    GlassPanel(title: appState.text("Goal Graph", "目标图谱")) {
+                        if appState.goals.isEmpty {
+                            Text(appState.text("No structured goals yet.", "还没有结构化目标。"))
+                                .foregroundStyle(.secondary)
+                        } else {
+                            VStack(alignment: .leading, spacing: 10) {
+                                ForEach(Array(appState.goals.prefix(4))) { goal in
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(goal.title)
+                                            .font(.headline)
+                                        Text("\(appState.displayToken(goal.kind)) • \(appState.displayToken(goal.status)) • \(Int(goal.progress * 100))%")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                        if !goal.successMetrics.isEmpty {
+                                            Text(goal.successMetrics.joined(separator: " · "))
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(2)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    GlassPanel(title: appState.text("Device Mesh", "设备网格")) {
+                        if appState.devices.isEmpty {
+                            Text(appState.text("No devices registered.", "还没有注册设备。"))
+                                .foregroundStyle(.secondary)
+                        } else {
+                            VStack(alignment: .leading, spacing: 10) {
+                                ForEach(appState.devices) { device in
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(device.name)
+                                            .font(.headline)
+                                        Text("\(appState.displayToken(device.deviceClass)) • \(appState.displayToken(device.status))")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                        if !device.capabilities.isEmpty {
+                                            Text(device.capabilities.joined(separator: ", "))
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(2)
+                                        }
                                     }
                                 }
                             }
@@ -373,6 +449,28 @@ private struct OverviewView: View {
                                     }
                                 }
                             }
+                        }
+                    }
+
+                    GlassPanel(title: appState.text("Memory Recall", "记忆召回")) {
+                        if let recall = appState.latestMemoryRecall, !recall.items.isEmpty {
+                            VStack(alignment: .leading, spacing: 10) {
+                                ForEach(recall.items) { item in
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(item.title)
+                                            .font(.headline)
+                                        Text("\(appState.displayToken(item.layer)) • \(Int(item.score * 100))%")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                        Text(item.reason)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(2)
+                                    }
+                                }
+                            }
+                        } else {
+                            Text(appState.text("No recall snapshot available.", "当前没有召回快照。"))
+                                .foregroundStyle(.secondary)
                         }
                     }
 
@@ -1538,6 +1636,10 @@ private struct SelfProfileView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         labeledTextField(appState.text("Current Phase", "当前阶段"), text: $appState.selfProfileDraft.currentPhase)
                         labeledTextField(appState.text("Risk Style", "风险风格"), text: $appState.selfProfileDraft.riskStyle)
+                        labeledTextField(appState.text("Persona Identity", "人格身份"), text: $appState.selfProfileDraft.personaAnchor.identityStatement)
+                        labeledTextField(appState.text("Persona Tone", "人格语气"), text: $appState.selfProfileDraft.personaAnchor.tone)
+                        labeledTextField(appState.text("Planning Style", "规划风格"), text: $appState.selfProfileDraft.personaAnchor.defaultPlanningStyle)
+                        labeledTextField(appState.text("Autonomy Preference", "自治偏好"), text: $appState.selfProfileDraft.personaAnchor.autonomyPreference)
                     }
                 }
 
@@ -1553,6 +1655,129 @@ private struct SelfProfileView: View {
                             get: { appState.selfProfileDraft.values },
                             set: { appState.selfProfileDraft.values = $0 }
                         ))
+                    }
+                }
+
+                HStack(alignment: .top, spacing: 16) {
+                    GlassPanel(title: appState.text("Session Focus", "会话焦点")) {
+                        multiLineEditor(text: listBinding(
+                            get: { appState.selfProfileDraft.sessionContext.activeFocus },
+                            set: { appState.selfProfileDraft.sessionContext.activeFocus = $0 }
+                        ))
+                    }
+                    GlassPanel(title: appState.text("Open Loops", "未完成回路")) {
+                        multiLineEditor(text: listBinding(
+                            get: { appState.selfProfileDraft.sessionContext.openLoops },
+                            set: { appState.selfProfileDraft.sessionContext.openLoops = $0 }
+                        ))
+                    }
+                }
+
+                HStack(alignment: .top, spacing: 16) {
+                    GlassPanel(title: appState.text("Recent Decisions", "最近决策")) {
+                        multiLineEditor(text: listBinding(
+                            get: { appState.selfProfileDraft.sessionContext.recentDecisions },
+                            set: { appState.selfProfileDraft.sessionContext.recentDecisions = $0 }
+                        ))
+                    }
+                    GlassPanel(title: appState.text("Current Commitments", "当前承诺")) {
+                        multiLineEditor(text: listBinding(
+                            get: { appState.selfProfileDraft.sessionContext.currentCommitments },
+                            set: { appState.selfProfileDraft.sessionContext.currentCommitments = $0 }
+                        ))
+                    }
+                }
+
+                HStack(alignment: .top, spacing: 16) {
+                    GlassPanel(title: appState.text("Goal Graph", "目标图谱")) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            ForEach(appState.goals) { goal in
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(goal.title)
+                                                .font(.headline)
+                                            Text("\(goal.kind) • \(goal.status)")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
+                                        Button(appState.text("Plan", "规划")) {
+                                            Task { await appState.planGoal(goal) }
+                                        }
+                                        Button(appState.text("Advance", "推进")) {
+                                            Task {
+                                                await appState.refreshGoalProgress(goal, progress: min(goal.progress + 0.1, 1.0))
+                                            }
+                                        }
+                                    }
+                                    if !goal.successMetrics.isEmpty {
+                                        Text(goal.successMetrics.joined(separator: " · "))
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(2)
+                                    }
+                                }
+                                Divider()
+                            }
+
+                            TextField(appState.text("Goal Title", "目标标题"), text: $appState.createGoalDraft.title)
+                                .textFieldStyle(.roundedBorder)
+                            TextField(appState.text("Goal Summary", "目标摘要"), text: $appState.createGoalDraft.summary, axis: .vertical)
+                                .textFieldStyle(.roundedBorder)
+                            TextField(appState.text("Success Metrics (one per line)", "成功指标（每行一个）"), text: $appState.createGoalDraft.successMetricsText, axis: .vertical)
+                                .textFieldStyle(.roundedBorder)
+                            HStack {
+                                Picker(appState.text("Kind", "类型"), selection: $appState.createGoalDraft.kind) {
+                                    Text("Project").tag("project")
+                                    Text("Initiative").tag("initiative")
+                                    Text("North Star").tag("north_star")
+                                }
+                                Picker(appState.text("Status", "状态"), selection: $appState.createGoalDraft.status) {
+                                    Text("Active").tag("active")
+                                    Text("On Hold").tag("on_hold")
+                                }
+                            }
+                            Button(appState.text("Create Goal", "创建目标")) {
+                                Task { await appState.createGoal() }
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
+                    }
+
+                    GlassPanel(title: appState.text("Device Registry", "设备注册")) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            ForEach(appState.devices) { device in
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(device.name)
+                                        .font(.headline)
+                                    Text("\(device.deviceClass) • \(device.status)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    if !device.capabilities.isEmpty {
+                                        Text(device.capabilities.joined(separator: ", "))
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(2)
+                                    }
+                                }
+                                Divider()
+                            }
+
+                            TextField(appState.text("Device ID", "设备 ID"), text: $appState.deviceDraft.id)
+                                .textFieldStyle(.roundedBorder)
+                            TextField(appState.text("Device Name", "设备名称"), text: $appState.deviceDraft.name)
+                                .textFieldStyle(.roundedBorder)
+                            HStack {
+                                TextField(appState.text("Device Class", "设备类型"), text: $appState.deviceDraft.deviceClass)
+                                    .textFieldStyle(.roundedBorder)
+                                TextField(appState.text("Status", "状态"), text: $appState.deviceDraft.status)
+                                    .textFieldStyle(.roundedBorder)
+                            }
+                            TextField(appState.text("Capabilities csv", "能力 csv"), text: $appState.deviceDraft.capabilitiesText)
+                                .textFieldStyle(.roundedBorder)
+                            Button(appState.text("Register Device", "注册设备")) {
+                                Task { await appState.upsertDevice() }
+                            }
+                        }
                     }
                 }
 

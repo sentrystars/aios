@@ -46,6 +46,43 @@ struct CreateTaskSheet: View {
                 }
             }
 
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Linked Goals")
+                    .font(.headline)
+                if appState.goals.isEmpty {
+                    Text("No structured goals available.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(appState.goals) { goal in
+                                Toggle(
+                                    isOn: Binding(
+                                        get: { appState.createTaskDraft.linkedGoalIDs.contains(goal.id) },
+                                        set: { isOn in
+                                            if isOn {
+                                                appState.createTaskDraft.linkedGoalIDs.append(goal.id)
+                                            } else {
+                                                appState.createTaskDraft.linkedGoalIDs.removeAll { $0 == goal.id }
+                                            }
+                                        }
+                                    )
+                                ) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(goal.title)
+                                        Text("\(goal.kind) • \(goal.status)")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .toggleStyle(.checkbox)
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 140)
+                }
+            }
+
             Spacer()
 
             HStack {

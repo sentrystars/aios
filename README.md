@@ -7,11 +7,15 @@ This repository contains a first-pass local-first backend kernel for AI OS.
 The MVP implements:
 
 - `Self Kernel` for persistent user context
+- `Persona Runtime` for identity anchor and session commitments
 - `Intent Engine` for request classification
-- `Memory Engine` for lightweight structured recall
+- `Structured Understanding` for requested outcome, constraints, stakeholders, and time horizon
+- `Memory Engine` for layered recall (`episodic`, `semantic`, `procedural`)
 - `Task Engine` with a task state machine
+- `Goal Graph` for long-range objective structure
 - `Governance Layer` for risk checks and confirmation policy
-- `Capability Bus` for registering executable capabilities
+- `Capability Bus` for registering executable capabilities with metadata
+- `Device Registry` for lightweight multi-device abstraction
 - `FastAPI` endpoints to drive the kernel
 
 ## Run
@@ -31,6 +35,10 @@ uvicorn main:app --reload --port 8787
 - `GET /self/timeline`
 - `POST /memory/facts`
 - `GET /memory/facts`
+- `GET /memory/recall`
+- `GET /goals`
+- `POST /goals`
+- `POST /goals/{goal_id}`
 - `POST /intents/evaluate`
 - `POST /inbox/process`
 - `POST /tasks`
@@ -43,6 +51,8 @@ uvicorn main:app --reload --port 8787
 - `POST /tasks/{task_id}/reflect`
 - `GET /capabilities`
 - `POST /capabilities/execute`
+- `GET /devices`
+- `PUT /devices`
 - `GET /events`
 - `GET /tasks/{task_id}/events`
 - `GET /tasks/{task_id}/timeline`
@@ -61,6 +71,15 @@ uvicorn main:app --reload --port 8787
 ## Design Notes
 
 This is deliberately a small kernel. Higher-order autonomy, richer planning, and hardware bodies should be layered on top of these primitives rather than folded into the core.
+
+The current iteration extends that kernel toward the intended AI OS definition:
+
+- `SelfProfile` now carries a persistent `persona_anchor` and mutable `session_context`
+- cognition now emits `structured_understanding` instead of only a mode suggestion
+- memory records now capture layer, source, confidence, freshness, and goal linkage
+- goals are persisted as first-class graph nodes and can drive candidate creation
+- capabilities now publish metadata such as scopes, confirmation requirement, device affinity, and expected evidence
+- devices are now registered explicitly so execution can grow beyond a single local machine
 
 `POST /inbox/process` is the main MVP entrypoint. It runs:
 

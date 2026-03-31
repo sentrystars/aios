@@ -133,6 +133,10 @@ final class AppState: ObservableObject {
     @Published var tasks: [TaskRecord] = []
     @Published var events: [EventRecord] = []
     @Published var memories: [MemoryRecord] = []
+    @Published var latestMemoryRecall: MemoryRecallResponse?
+    @Published var goals: [GoalRecord] = []
+    @Published var devices: [DeviceRecord] = []
+    @Published var latestGoalPlanResult: GoalPlanResult?
     @Published var reminders: [ReminderRecord] = []
     @Published var capabilities: [CapabilityDescriptor] = []
     @Published var candidates: [CandidateTask] = []
@@ -164,6 +168,8 @@ final class AppState: ObservableObject {
     @Published var errorMessage: String?
     @Published var successMessage: String?
     @Published var createTaskDraft = CreateTaskDraft()
+    @Published var createGoalDraft = CreateGoalDraft()
+    @Published var deviceDraft = DeviceDraft()
     @Published var inboxText = ""
     @Published var latestIntentEvaluation: IntentEvaluation?
     @Published var latestIntakeResponse: IntakeResponse?
@@ -253,6 +259,7 @@ final class AppState: ObservableObject {
             case "file_artifact": return "文件产物"
             case "message_draft": return "消息草稿"
             case "reminder": return "提醒"
+            case "calendar_event": return "日程事件"
             case "note": return "笔记"
             case "manual": return "手动"
             case "none": return "无"
@@ -270,6 +277,7 @@ final class AppState: ObservableObject {
             switch normalized {
             case "task": return "任务"
             case "reminder": return "提醒"
+            case "calendar_due": return "到期日程"
             case "follow_up": return "跟进"
             case "memory": return "记忆"
             case "idea": return "想法"
@@ -462,6 +470,8 @@ final class AppState: ObservableObject {
             async let loadedTasks = apiClient.fetchTasks()
             async let loadedEvents = apiClient.fetchEvents()
             async let loadedMemories = apiClient.fetchMemories()
+            async let loadedGoals = apiClient.fetchGoals()
+            async let loadedDevices = apiClient.fetchDevices()
             async let loadedCapabilities = apiClient.fetchCapabilities()
             _ = try await health
             backendStatus = .connected
@@ -471,6 +481,8 @@ final class AppState: ObservableObject {
             tasks = try await loadedTasks
             events = try await loadedEvents
             memories = try await loadedMemories
+            goals = try await loadedGoals
+            devices = try await loadedDevices
             capabilities = try await loadedCapabilities
             if selectedTaskID == nil {
                 selectedTaskID = tasks.first?.id
@@ -486,6 +498,7 @@ final class AppState: ObservableObject {
             }
             await loadSelectedTaskContext()
             await loadSelectedMemoryContext()
+            latestMemoryRecall = try? await apiClient.recallMemories(query: selfProfile.currentPhase, limit: 3)
             await reloadReminders()
         } catch {
             backendStatus = .disconnected
@@ -538,7 +551,8 @@ final class AppState: ObservableObject {
                     objective: draft.objective,
                     tags: draft.tags,
                     successCriteria: draft.successCriteria,
-                    riskLevel: draft.riskLevel
+                    riskLevel: draft.riskLevel,
+                    linkedGoalIDs: draft.linkedGoalIDs
                 )
             )
             isPresentingCreateTask = false
@@ -568,7 +582,8 @@ final class AppState: ObservableObject {
                     objective: objective,
                     tags: ["quick_capture", "menubar"],
                     successCriteria: [],
-                    riskLevel: "low"
+                    riskLevel: "low",
+                    linkedGoalIDs: []
                 )
             )
             menuBarQuickTaskTitle = ""
@@ -602,7 +617,113 @@ final class AppState: ObservableObject {
         createTaskDraft.successCriteriaText = successCriteria.joined(separator: "\n")
         createTaskDraft.tagsText = tags.joined(separator: ", ")
         createTaskDraft.riskLevel = riskLevel
+        createTaskDraft.linkedGoalIDs = []
         isPresentingCreateTask = true
+    }
+
+    func createGoal() async {
+        let draft = createGoalDraft.normalized
+        guard !draft.title.isEmpty else {
+            errorMessage = "Goal title is required."
+            return
+        }
+        isLoading = true
+        errorMessage = nil
+        successMessage = nil
+        do {
+            _ = try await apiClient.createGoal(
+                GoalCreateRequest(
+                    title: draft.title,
+                    kind: draft.kind,
+                    status: draft.status,
+                    horizon: draft.horizon,
+                    summary: draft.summary,
+                    successMetrics: draft.successMetrics,
+                    parentGoalID: draft.parentGoalID,
+                    tags: draft.tags,
+                    priority: draft.priority,
+                    progress: draft.progress
+                )
+            )
+            createGoalDraft = CreateGoalDraft()
+            await reloadAll()
+            successMessage = "Goal created."
+        } catch {
+            errorMessage = error.localizedDescription
+            isLoading = false
+        }
+    }
+
+    func refreshGoalProgress(_ goal: GoalRecord, progress: Double) async {
+        isLoading = true
+        errorMessage = nil
+        successMessage = nil
+        do {
+            _ = try await apiClient.updateGoal(
+                id: goal.id,
+                request: GoalUpdateRequest(
+                    title: nil,
+                    status: progress >= 1.0 ? "done" : nil,
+                    summary: nil,
+                    successMetrics: nil,
+                    tags: nil,
+                    priority: nil,
+                    progress: progress
+                )
+            )
+            await reloadAll()
+            successMessage = "Goal updated."
+        } catch {
+            errorMessage = error.localizedDescription
+            isLoading = false
+        }
+    }
+
+    func planGoal(_ goal: GoalRecord) async {
+        isLoading = true
+        errorMessage = nil
+        successMessage = nil
+        do {
+            latestGoalPlanResult = try await apiClient.planGoal(id: goal.id)
+            await reloadAll()
+            if let first = latestGoalPlanResult?.createdTasks.first {
+                selectedDestination = .tasks
+                selectedTaskID = first.id
+            }
+            successMessage = latestGoalPlanResult?.summary ?? "Goal planned."
+        } catch {
+            errorMessage = error.localizedDescription
+            isLoading = false
+        }
+    }
+
+    func upsertDevice() async {
+        let draft = deviceDraft.normalized
+        guard !draft.id.isEmpty, !draft.name.isEmpty else {
+            errorMessage = "Device id and name are required."
+            return
+        }
+        isLoading = true
+        errorMessage = nil
+        successMessage = nil
+        do {
+            _ = try await apiClient.upsertDevice(
+                DeviceUpsertRequest(
+                    id: draft.id,
+                    name: draft.name,
+                    deviceClass: draft.deviceClass,
+                    status: draft.status,
+                    capabilities: draft.capabilities,
+                    metadata: draft.metadata
+                )
+            )
+            deviceDraft = DeviceDraft()
+            await reloadAll()
+            successMessage = "Device registered."
+        } catch {
+            errorMessage = error.localizedDescription
+            isLoading = false
+        }
     }
 
     func reloadCandidates() async {
@@ -849,6 +970,9 @@ final class AppState: ObservableObject {
             selfProfileDraft = selfProfile
             selfPreferencesText = Self.serializePreferences(selfProfile.preferences)
             events = try await apiClient.fetchEvents()
+            goals = try await apiClient.fetchGoals()
+            devices = try await apiClient.fetchDevices()
+            latestMemoryRecall = try? await apiClient.recallMemories(query: selfProfile.currentPhase, limit: 3)
             successMessage = "Self profile updated."
             await postNotification(title: "AI OS", body: "Self profile updated.", route: .dashboard)
         } catch {
@@ -1302,7 +1426,7 @@ final class AppState: ObservableObject {
         try? await center.add(request)
     }
 
-    private static func serializePreferences(_ preferences: [String: JSONValue]) -> String {
+    nonisolated static func serializePreferences(_ preferences: [String: JSONValue]) -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         guard let data = try? encoder.encode(preferences),
@@ -1312,7 +1436,7 @@ final class AppState: ObservableObject {
         return text
     }
 
-    private static func parsePreferences(from text: String) throws -> [String: JSONValue] {
+    nonisolated static func parsePreferences(from text: String) throws -> [String: JSONValue] {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [:] }
         let data = Data(trimmed.utf8)
@@ -1328,6 +1452,8 @@ final class AppState: ObservableObject {
         case "local_files":
             return "list_dir"
         case "reminders":
+            return "list"
+        case "calendar":
             return "list"
         case "notes":
             return "draft"
@@ -1410,8 +1536,9 @@ struct CreateTaskDraft {
     var successCriteriaText = ""
     var tagsText = ""
     var riskLevel = "low"
+    var linkedGoalIDs: [String] = []
 
-    var normalized: (objective: String, successCriteria: [String], tags: [String], riskLevel: String) {
+    var normalized: (objective: String, successCriteria: [String], tags: [String], riskLevel: String, linkedGoalIDs: [String]) {
         (
             objective.trimmingCharacters(in: .whitespacesAndNewlines),
             successCriteriaText
@@ -1422,7 +1549,84 @@ struct CreateTaskDraft {
                 .split(separator: ",")
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty },
-            riskLevel
+            riskLevel,
+            linkedGoalIDs
+        )
+    }
+}
+
+struct CreateGoalDraft {
+    var title = ""
+    var kind = "project"
+    var status = "active"
+    var horizon = "current"
+    var summary = ""
+    var successMetricsText = ""
+    var parentGoalID = ""
+    var tagsText = ""
+    var priority = 3
+    var progress = 0.0
+
+    var normalized: (
+        title: String,
+        kind: String,
+        status: String,
+        horizon: String,
+        summary: String,
+        successMetrics: [String],
+        parentGoalID: String?,
+        tags: [String],
+        priority: Int,
+        progress: Double
+    ) {
+        (
+            title.trimmingCharacters(in: .whitespacesAndNewlines),
+            kind,
+            status,
+            horizon.trimmingCharacters(in: .whitespacesAndNewlines),
+            summary.trimmingCharacters(in: .whitespacesAndNewlines),
+            successMetricsText
+                .split(whereSeparator: \.isNewline)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty },
+            parentGoalID.nilIfBlank,
+            tagsText
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty },
+            priority,
+            progress
+        )
+    }
+}
+
+struct DeviceDraft {
+    var id = ""
+    var name = ""
+    var deviceClass = "mac_local"
+    var status = "active"
+    var capabilitiesText = ""
+    var metadataText = "{}"
+
+    var normalized: (
+        id: String,
+        name: String,
+        deviceClass: String,
+        status: String,
+        capabilities: [String],
+        metadata: [String: JSONValue]
+    ) {
+        let metadata = (try? AppState.parsePreferences(from: metadataText)) ?? [:]
+        return (
+            id.trimmingCharacters(in: .whitespacesAndNewlines),
+            name.trimmingCharacters(in: .whitespacesAndNewlines),
+            deviceClass,
+            status,
+            capabilitiesText
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty },
+            metadata
         )
     }
 }

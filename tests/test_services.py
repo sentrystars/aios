@@ -12,6 +12,8 @@ from ai_os.domain import (
     SchedulerTickPayload,
     CapabilityExecutionPayload,
     ExecutionMode,
+    GoalCreatePayload,
+    GoalUpdatePayload,
     InputPayload,
     IntentType,
     MemoryCreatePayload,
@@ -34,6 +36,7 @@ class KernelServicesTest(unittest.TestCase):
         self.container = build_container(Path(self.tempdir.name))
         self.intake = IntakeCoordinator(
             self_kernel=self.container.self_kernel,
+            goal_service=self.container.goal_service,
             intent_engine=self.container.intent_engine,
             cognition_engine=self.container.cognition_engine,
             task_engine=self.container.task_engine,
@@ -48,6 +51,7 @@ class KernelServicesTest(unittest.TestCase):
         self.events = EventQueryService(self.container.event_repo)
         self.candidates = CandidateTaskService(
             self.container.self_kernel,
+            self.container.goal_service,
             self.container.task_engine,
             self.container.event_repo,
             self.container.capability_bus,
@@ -67,6 +71,7 @@ class KernelServicesTest(unittest.TestCase):
         )
         records = self.container.memory_engine.list()
         self.assertEqual(len(records), 1)
+        self.assertEqual(records[0].layer.value, "semantic")
 
     def test_self_update_emits_event_and_timeline(self) -> None:
         profile = self.container.self_kernel.get()
@@ -101,6 +106,7 @@ class KernelServicesTest(unittest.TestCase):
         self.assertEqual(response.intent.intent_type, IntentType.TASK)
         self.assertEqual(response.cognition.suggested_execution_mode, ExecutionMode.FILE_ARTIFACT)
         self.assertEqual(response.cognition.suggested_execution_plan.steps[0].capability_name, "local_files")
+        self.assertEqual(response.cognition.understanding.requested_outcome, "Draft the first AI OS milestone plan")
         self.assertIsNotNone(response.task)
         self.assertEqual(response.task.objective, "Draft the first AI OS milestone plan")
         self.assertEqual(response.task.execution_mode, ExecutionMode.FILE_ARTIFACT)
@@ -133,6 +139,13 @@ class KernelServicesTest(unittest.TestCase):
         self.assertEqual(response.cognition.suggested_execution_plan.steps[0].capability_name, "reminders")
         self.assertIsNotNone(response.task)
         self.assertEqual(response.task.execution_mode, ExecutionMode.REMINDER)
+
+    def test_intake_assigns_calendar_execution_mode(self) -> None:
+        response = self.intake.process(InputPayload(text="Schedule time block for AI OS roadmap review"))
+        self.assertEqual(response.cognition.suggested_execution_mode, ExecutionMode.CALENDAR_EVENT)
+        self.assertEqual(response.cognition.suggested_execution_plan.steps[0].capability_name, "calendar")
+        self.assertIsNotNone(response.task)
+        self.assertEqual(response.task.execution_mode, ExecutionMode.CALENDAR_EVENT)
 
     def test_intake_uses_reflection_guardrail_to_require_confirmation(self) -> None:
         completed = self.container.task_engine.create(TaskCreatePayload(objective="Capture Alice guardrail"))
@@ -208,6 +221,134 @@ class KernelServicesTest(unittest.TestCase):
         )
         self.assertEqual(note_result.status, "ok")
         self.assertTrue(message_result.requires_confirmation)
+        capability_names = {item.name for item in self.container.capability_bus.list()}
+        self.assertIn("local_files", capability_names)
+
+    def test_memory_recall_scores_matching_records(self) -> None:
+        self.container.memory_engine.create(
+            MemoryCreatePayload(
+                memory_type=MemoryType.KNOWLEDGE,
+                title="Roadmap preference",
+                content="Prefer weekly AI OS roadmap review.",
+                tags=["roadmap", "weekly"],
+            )
+        )
+        recall = self.container.memory_engine.recall("roadmap weekly", limit=3)
+        self.assertTrue(recall.items)
+        self.assertEqual(recall.items[0].title, "Roadmap preference")
+
+    def test_goal_service_creates_and_updates_goal(self) -> None:
+        goal = self.container.goal_service.create(
+            GoalCreatePayload(
+                title="Build AI OS goal graph",
+                kind="initiative",
+                summary="Turn long-term goals into structured execution paths.",
+                success_metrics=["Goals are persisted", "Tasks can link to goals"],
+            )
+        )
+        self.assertEqual(goal.title, "Build AI OS goal graph")
+        updated = self.container.goal_service.update(goal.id, GoalUpdatePayload(progress=0.5, status="active"))
+        self.assertEqual(updated.progress, 0.5)
+
+    def test_goal_progress_refresh_follows_linked_task_states(self) -> None:
+        goal = self.container.goal_service.create(
+            GoalCreatePayload(title="Goal progress", kind="project", success_metrics=["Linked tasks complete"])
+        )
+        task = self.container.task_engine.create(
+            TaskCreatePayload(objective="Linked task", linked_goal_ids=[goal.id])
+        )
+        self.container.goal_service.refresh_progress(self.container.task_engine.list())
+        refreshed = self.container.goal_service.get(goal.id)
+        self.assertEqual(refreshed.progress, 0.0)
+
+        self.container.task_engine.plan(task.id)
+        changes = self.container.goal_service.refresh_progress(self.container.task_engine.list())
+        refreshed = self.container.goal_service.get(goal.id)
+        self.assertGreaterEqual(refreshed.progress, 0.5)
+
+        self.delivery.execute_task(task.id)
+        self.delivery.verify_task(task.id, TaskVerificationPayload())
+        self.container.goal_service.refresh_progress(self.container.task_engine.list())
+        refreshed = self.container.goal_service.get(goal.id)
+        self.assertEqual(refreshed.status.value, "done")
+        self.assertEqual(refreshed.progress, 1.0)
+
+    def test_device_service_bootstraps_local_device(self) -> None:
+        devices = self.container.device_service.list()
+        self.assertTrue(devices)
+        self.assertEqual(devices[0].device_class, "mac_local")
+        self.assertIn("calendar", devices[0].capabilities)
+
+    def test_candidate_discovery_adds_goal_review_for_unlinked_goal(self) -> None:
+        goal = self.container.goal_service.create(
+            GoalCreatePayload(title="Ship AI OS v0.2", kind="project", success_metrics=["Persona runtime exists"])
+        )
+        candidates = self.candidates.discover(limit=20)
+        review = next(candidate for candidate in candidates if candidate.kind == "goal_review")
+        self.assertEqual(review.metadata["goal_id"], goal.id)
+
+    def test_intake_links_task_to_matching_goal(self) -> None:
+        goal = self.container.goal_service.create(
+            GoalCreatePayload(title="Roadmap Review", kind="project", success_metrics=["Review task created"])
+        )
+        response = self.intake.process(InputPayload(text="Prepare Roadmap Review checklist"))
+        self.assertIsNotNone(response.task)
+        self.assertIn(goal.id, response.task.linked_goal_ids)
+
+    def test_goal_service_plan_goal_creates_backlog_tasks(self) -> None:
+        goal = self.container.goal_service.create(
+            GoalCreatePayload(title="Launch AI OS planning", kind="project", success_metrics=["Deliverable exists"])
+        )
+        result = self.container.goal_service.plan_goal(goal.id, self.container.task_engine)
+        self.assertEqual(result.goal_id, goal.id)
+        self.assertEqual(len(result.created_tasks), 3)
+        self.assertTrue(all(goal.id in task.linked_goal_ids for task in result.created_tasks))
+
+    def test_goal_service_plan_goal_adds_contextual_tasks(self) -> None:
+        self.container.memory_engine.create(
+            MemoryCreatePayload(
+                memory_type=MemoryType.REFLECTION,
+                title="Stakeholder review lesson",
+                content="Schedule recurring roadmap review carefully with stakeholders.",
+                tags=["roadmap", "stakeholder"],
+                layer="procedural",
+            )
+        )
+        goal = self.container.goal_service.create(
+            GoalCreatePayload(
+                title="Plan stakeholder roadmap review cadence",
+                kind="initiative",
+                summary="Schedule recurring review with partner stakeholders and draft roadmap note.",
+                success_metrics=["Calendar slot exists", "Roadmap draft exists"],
+            )
+        )
+        result = self.container.goal_service.plan_goal(goal.id, self.container.task_engine)
+        objectives = {task.objective for task in result.created_tasks}
+        self.assertTrue(any("Schedule working session" in item for item in objectives))
+        self.assertTrue(any("Draft primary artifact" in item for item in objectives))
+        self.assertTrue(any("Prepare stakeholder alignment" in item for item in objectives))
+        self.assertTrue(any("Break down milestone map" in item for item in objectives))
+        self.assertTrue(any("Apply recalled lessons" in item for item in objectives))
+
+    def test_goal_service_plan_goal_is_idempotent_when_backlog_exists(self) -> None:
+        goal = self.container.goal_service.create(
+            GoalCreatePayload(title="Repeatable goal plan", kind="project", success_metrics=["Backlog stable"])
+        )
+        self.container.goal_service.plan_goal(goal.id, self.container.task_engine)
+        second = self.container.goal_service.plan_goal(goal.id, self.container.task_engine)
+        self.assertFalse(second.created_tasks)
+        self.assertEqual(second.summary, "Goal backlog already existed.")
+
+    def test_scheduler_tick_refreshes_goal_progress(self) -> None:
+        goal = self.container.goal_service.create(
+            GoalCreatePayload(title="Scheduler linked goal", kind="project", success_metrics=["Task done"])
+        )
+        self.container.task_engine.create(
+            TaskCreatePayload(objective="Scheduler lifecycle task for linked goal", linked_goal_ids=[goal.id])
+        )
+        self.container.scheduler_service.tick(SchedulerTickPayload(candidate_limit=10))
+        refreshed = self.container.goal_service.get(goal.id)
+        self.assertEqual(refreshed.progress, 1.0)
 
     def test_reminders_capability_creates_local_entry(self) -> None:
         create_result = self.delivery.execute_capability(
@@ -265,6 +406,143 @@ class KernelServicesTest(unittest.TestCase):
         self.assertEqual(updated["due_hint"], "later today")
         self.assertEqual(datetime.fromisoformat(updated["scheduled_for"]), new_time)
         self.assertIsNone(updated["last_seen_at"])
+
+    def test_calendar_capability_creates_and_lists_local_event(self) -> None:
+        create_result = self.delivery.execute_capability(
+            CapabilityExecutionPayload(
+                capability_name="calendar",
+                action="create",
+                parameters={
+                    "title": "AI OS planning block",
+                    "note": "Focus time",
+                    "due_hint": "later today",
+                    "duration_minutes": 45,
+                    "source_task_id": "task-456",
+                },
+            )
+        )
+        list_result = self.delivery.execute_capability(
+            CapabilityExecutionPayload(capability_name="calendar", action="list", parameters={})
+        )
+        events = json.loads(list_result.output)
+        self.assertEqual(create_result.status, "ok")
+        self.assertTrue(any(item["title"] == "AI OS planning block" for item in events))
+        self.assertEqual(events[0]["duration_minutes"], 45)
+        self.assertEqual(events[0]["source_task_id"], "task-456")
+
+    def test_calendar_capability_can_reschedule_event(self) -> None:
+        self.delivery.execute_capability(
+            CapabilityExecutionPayload(
+                capability_name="calendar",
+                action="create",
+                parameters={"title": "Reschedule calendar item", "scheduled_for": (utc_now() + timedelta(hours=1)).isoformat()},
+            )
+        )
+        original = json.loads(
+            self.delivery.execute_capability(
+                CapabilityExecutionPayload(capability_name="calendar", action="list", parameters={})
+            ).output
+        )[0]
+        new_time = utc_now() + timedelta(days=1)
+        self.delivery.execute_capability(
+            CapabilityExecutionPayload(
+                capability_name="calendar",
+                action="reschedule",
+                parameters={"id": original["id"], "scheduled_for": new_time.isoformat()},
+            )
+        )
+        updated = json.loads(
+            self.delivery.execute_capability(
+                CapabilityExecutionPayload(capability_name="calendar", action="list", parameters={})
+            ).output
+        )[0]
+        self.assertEqual(datetime.fromisoformat(updated["scheduled_for"]), new_time)
+
+    def test_candidate_discovery_includes_due_calendar_event(self) -> None:
+        task = self.container.task_engine.create(TaskCreatePayload(objective="Schedule roadmap session source"))
+        self.delivery.execute_capability(
+            CapabilityExecutionPayload(
+                capability_name="calendar",
+                action="create",
+                parameters={
+                    "title": "Roadmap session",
+                    "note": "Resume planning from calendar",
+                    "scheduled_for": (utc_now() - timedelta(minutes=5)).isoformat(),
+                    "source_task_id": task.id,
+                    "origin": "test",
+                },
+            )
+        )
+        candidates = self.candidates.discover(limit=20)
+        candidate = next(candidate for candidate in candidates if candidate.kind == "calendar_due")
+        self.assertEqual(candidate.reason_code, "due_calendar_event")
+        self.assertEqual(candidate.trigger_source, "calendar_schedule")
+        self.assertEqual(candidate.metadata["origin"], "test")
+
+    def test_accept_due_calendar_event_resumes_task_and_clears_event(self) -> None:
+        source_task = self.container.task_engine.create(TaskCreatePayload(objective="Calendar-linked review"))
+        self.delivery.execute_capability(
+            CapabilityExecutionPayload(
+                capability_name="calendar",
+                action="create",
+                parameters={
+                    "title": "Calendar-linked review",
+                    "scheduled_for": (utc_now() - timedelta(minutes=5)).isoformat(),
+                    "source_task_id": source_task.id,
+                    "origin": "calendar_test",
+                },
+            )
+        )
+        candidate = next(candidate for candidate in self.candidates.discover(limit=20) if candidate.kind == "calendar_due")
+        result = self.candidates.accept(
+            CandidateAcceptancePayload(
+                kind=candidate.kind,
+                title=candidate.title,
+                detail=candidate.detail,
+                source_task_id=candidate.source_task_id,
+                metadata=candidate.metadata,
+            )
+        )
+        remaining = json.loads(
+            self.delivery.execute_capability(
+                CapabilityExecutionPayload(capability_name="calendar", action="list", parameters={})
+            ).output
+        )
+        self.assertEqual(result.action, "resumed_existing_task")
+        self.assertFalse(remaining)
+
+    def test_defer_due_calendar_event_reschedules_it(self) -> None:
+        self.delivery.execute_capability(
+            CapabilityExecutionPayload(
+                capability_name="calendar",
+                action="create",
+                parameters={
+                    "title": "Defer calendar event",
+                    "scheduled_for": (utc_now() - timedelta(minutes=2)).isoformat(),
+                },
+            )
+        )
+        candidate = next(candidate for candidate in self.candidates.discover(limit=20) if candidate.kind == "calendar_due")
+        deferred_until = utc_now() + timedelta(hours=3)
+        result = self.candidates.defer(
+            CandidateDeferPayload(
+                kind=candidate.kind,
+                title=candidate.title,
+                detail=candidate.detail,
+                metadata=candidate.metadata,
+                due_hint="later today",
+                scheduled_for=deferred_until,
+            )
+        )
+        remaining_candidates = self.candidates.discover(limit=20)
+        events = json.loads(
+            self.delivery.execute_capability(
+                CapabilityExecutionPayload(capability_name="calendar", action="list", parameters={})
+            ).output
+        )
+        self.assertEqual(result.action, "rescheduled_calendar_event")
+        self.assertFalse(any(item.kind == "calendar_due" for item in remaining_candidates))
+        self.assertEqual(datetime.fromisoformat(events[0]["scheduled_for"]), deferred_until)
 
     def test_local_files_capability_reads_and_writes_inside_workspace(self) -> None:
         write_result = self.delivery.execute_capability(
@@ -359,6 +637,17 @@ class KernelServicesTest(unittest.TestCase):
         self.assertEqual(runs[0].status, TaskStatus.DONE.value)
         run_relations = self.container.relation_service.list_for_entity("execution_run", runs[0].id)
         self.assertTrue(any(relation.relation_type == "scheduled_reminder" for relation in run_relations))
+
+    def test_execute_task_can_schedule_calendar_event(self) -> None:
+        task = self.container.task_engine.create(TaskCreatePayload(objective="Schedule time block for roadmap review"))
+        self.container.task_engine.plan(task.id)
+        executed = self.delivery.execute_task(task.id)
+        verified = self.delivery.verify_task(task.id, TaskVerificationPayload())
+        self.assertEqual(executed.execution_mode, ExecutionMode.CALENDAR_EVENT)
+        self.assertEqual(verified.status, TaskStatus.DONE)
+        self.assertIn("Calendar event scheduled", verified.verification_notes)
+        relations = self.container.relation_service.list_for_entity("task", task.id)
+        self.assertTrue(any(relation.relation_type == "scheduled_calendar_event" for relation in relations))
 
     def test_confirm_message_task_allows_verification_to_complete(self) -> None:
         task = self.container.task_engine.create(TaskCreatePayload(objective="Message Alice about the current AI OS status"))

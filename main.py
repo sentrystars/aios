@@ -14,11 +14,18 @@ from ai_os.domain import (
     CandidateDeferResult,
     CandidateTask,
     CapabilityExecutionPayload,
+    DeviceRecord,
+    DeviceUpsertPayload,
     EntityRelation,
     EventRecord,
     ExecutionRunRecord,
+    GoalCreatePayload,
+    GoalPlanResult,
+    GoalRecord,
+    GoalUpdatePayload,
     InputPayload,
     MemoryCreatePayload,
+    MemoryRecallResponse,
     SchedulerTickPayload,
     SchedulerTickResult,
     SelfProfile,
@@ -35,6 +42,7 @@ app = FastAPI(title="AI OS MVP", version="0.1.0")
 container = build_container(Path(".data"))
 intake = IntakeCoordinator(
     self_kernel=container.self_kernel,
+    goal_service=container.goal_service,
     intent_engine=container.intent_engine,
     cognition_engine=container.cognition_engine,
     task_engine=container.task_engine,
@@ -49,6 +57,7 @@ delivery = DeliveryCoordinator(
 events = EventQueryService(container.event_repo)
 candidates = CandidateTaskService(
     container.self_kernel,
+    container.goal_service,
     container.task_engine,
     container.event_repo,
     container.capability_bus,
@@ -85,6 +94,47 @@ def create_memory(payload: MemoryCreatePayload):
 @app.get("/memory/facts")
 def list_memories():
     return container.memory_engine.list()
+
+
+@app.get("/memory/recall", response_model=MemoryRecallResponse)
+def recall_memories(query: str, limit: int = 5):
+    return container.memory_engine.recall(query=query, limit=limit)
+
+
+@app.get("/goals", response_model=list[GoalRecord])
+def list_goals():
+    return container.goal_service.list()
+
+
+@app.post("/goals", response_model=GoalRecord)
+def create_goal(payload: GoalCreatePayload):
+    return container.goal_service.create(payload)
+
+
+@app.post("/goals/{goal_id}", response_model=GoalRecord)
+def update_goal(goal_id: str, payload: GoalUpdatePayload):
+    try:
+        return container.goal_service.update(goal_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/goals/{goal_id}/plan", response_model=GoalPlanResult)
+def plan_goal(goal_id: str):
+    try:
+        return container.goal_service.plan_goal(goal_id, container.task_engine)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/devices", response_model=list[DeviceRecord])
+def list_devices():
+    return container.device_service.list()
+
+
+@app.put("/devices", response_model=DeviceRecord)
+def upsert_device(payload: DeviceUpsertPayload):
+    return container.device_service.upsert(payload)
 
 
 @app.post("/intents/evaluate")

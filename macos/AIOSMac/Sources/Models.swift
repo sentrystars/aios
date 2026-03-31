@@ -1,5 +1,37 @@
 import Foundation
 
+struct PersonaAnchor: Codable, Sendable {
+    var identityStatement: String
+    var tone: String
+    var nonNegotiables: [String]
+    var defaultPlanningStyle: String
+    var autonomyPreference: String
+
+    enum CodingKeys: String, CodingKey {
+        case identityStatement = "identity_statement"
+        case tone
+        case nonNegotiables = "non_negotiables"
+        case defaultPlanningStyle = "default_planning_style"
+        case autonomyPreference = "autonomy_preference"
+    }
+}
+
+struct SessionContext: Codable, Sendable {
+    var activeFocus: [String]
+    var openLoops: [String]
+    var recentDecisions: [String]
+    var currentCommitments: [String]
+    var updatedAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case activeFocus = "active_focus"
+        case openLoops = "open_loops"
+        case recentDecisions = "recent_decisions"
+        case currentCommitments = "current_commitments"
+        case updatedAt = "updated_at"
+    }
+}
+
 struct SelfProfile: Codable, Sendable {
     var longTermGoals: [String]
     var currentPhase: String
@@ -8,6 +40,8 @@ struct SelfProfile: Codable, Sendable {
     var riskStyle: String
     var boundaries: [String]
     var relationshipNetwork: [String]
+    var personaAnchor: PersonaAnchor
+    var sessionContext: SessionContext
     var updatedAt: Date
 
     static let empty = SelfProfile(
@@ -18,6 +52,20 @@ struct SelfProfile: Codable, Sendable {
         riskStyle: "balanced",
         boundaries: [],
         relationshipNetwork: [],
+        personaAnchor: PersonaAnchor(
+            identityStatement: "A local-first personal intelligence system.",
+            tone: "clear, direct, pragmatic",
+            nonNegotiables: [],
+            defaultPlanningStyle: "goal-first",
+            autonomyPreference: "controlled_autonomy"
+        ),
+        sessionContext: SessionContext(
+            activeFocus: [],
+            openLoops: [],
+            recentDecisions: [],
+            currentCommitments: [],
+            updatedAt: .now
+        ),
         updatedAt: .now
     )
 
@@ -29,7 +77,29 @@ struct SelfProfile: Codable, Sendable {
         case riskStyle = "risk_style"
         case boundaries
         case relationshipNetwork = "relationship_network"
+        case personaAnchor = "persona_anchor"
+        case sessionContext = "session_context"
         case updatedAt = "updated_at"
+    }
+}
+
+struct StructuredUnderstanding: Codable, Sendable {
+    var requestedOutcome: String
+    var successShape: String
+    var explicitConstraints: [String]
+    var inferredConstraints: [String]
+    var stakeholders: [String]
+    var timeHorizon: String
+    var continuationPreference: String
+
+    enum CodingKeys: String, CodingKey {
+        case requestedOutcome = "requested_outcome"
+        case successShape = "success_shape"
+        case explicitConstraints = "explicit_constraints"
+        case inferredConstraints = "inferred_constraints"
+        case stakeholders
+        case timeHorizon = "time_horizon"
+        case continuationPreference = "continuation_preference"
     }
 }
 
@@ -103,6 +173,7 @@ struct CognitionReport: Codable, Sendable {
     var commonsense: CommonsenseAssessment
     var insight: InsightAssessment
     var courage: CourageAssessment
+    var understanding: StructuredUnderstanding
     var suggestedExecutionMode: String
     var suggestedExecutionPlan: ExecutionPlan
     var suggestedTaskTags: [String]
@@ -113,6 +184,7 @@ struct CognitionReport: Codable, Sendable {
         case commonsense
         case insight
         case courage
+        case understanding
         case suggestedExecutionMode = "suggested_execution_mode"
         case suggestedExecutionPlan = "suggested_execution_plan"
         case suggestedTaskTags = "suggested_task_tags"
@@ -141,6 +213,7 @@ struct TaskRecord: Codable, Identifiable, Sendable {
     var executionPlan: ExecutionPlan
     var rollbackPlan: String?
     var blockerReason: String?
+    var linkedGoalIDs: [String]
     var artifactPaths: [String]
     var verificationNotes: [String]
     var createdAt: Date
@@ -160,6 +233,7 @@ struct TaskRecord: Codable, Identifiable, Sendable {
         case executionPlan = "execution_plan"
         case rollbackPlan = "rollback_plan"
         case blockerReason = "blocker_reason"
+        case linkedGoalIDs = "linked_goal_ids"
         case artifactPaths = "artifact_paths"
         case verificationNotes = "verification_notes"
         case createdAt = "created_at"
@@ -172,11 +246,19 @@ struct CapabilityDescriptor: Codable, Identifiable, Sendable {
     var name: String
     var description: String
     var riskLevel: String
+    var confirmationRequired: Bool
+    var scopes: [String]
+    var deviceAffinity: [String]
+    var evidenceOutputs: [String]
 
     enum CodingKeys: String, CodingKey {
         case name
         case description
         case riskLevel = "risk_level"
+        case confirmationRequired = "confirmation_required"
+        case scopes
+        case deviceAffinity = "device_affinity"
+        case evidenceOutputs = "evidence_outputs"
     }
 }
 
@@ -252,18 +334,178 @@ struct EventRecord: Codable, Identifiable, Sendable {
 struct MemoryRecord: Codable, Identifiable, Sendable {
     var id: String
     var memoryType: String
+    var layer: String
     var title: String
     var content: String
     var tags: [String]
+    var source: String
+    var confidence: Double
+    var freshness: String
+    var relatedGoalIDs: [String]
     var createdAt: Date
 
     enum CodingKeys: String, CodingKey {
         case id
         case memoryType = "memory_type"
+        case layer
         case title
         case content
         case tags
+        case source
+        case confidence
+        case freshness
+        case relatedGoalIDs = "related_goal_ids"
         case createdAt = "created_at"
+    }
+}
+
+struct MemoryRecallItem: Codable, Identifiable, Sendable {
+    var id: String { memoryID }
+    var memoryID: String
+    var title: String
+    var layer: String
+    var score: Double
+    var reason: String
+
+    enum CodingKeys: String, CodingKey {
+        case memoryID = "memory_id"
+        case title
+        case layer
+        case score
+        case reason
+    }
+}
+
+struct MemoryRecallResponse: Codable, Sendable {
+    var query: String
+    var items: [MemoryRecallItem]
+}
+
+struct GoalRecord: Codable, Identifiable, Sendable {
+    var id: String
+    var title: String
+    var kind: String
+    var status: String
+    var horizon: String
+    var summary: String
+    var successMetrics: [String]
+    var parentGoalID: String?
+    var tags: [String]
+    var priority: Int
+    var progress: Double
+    var createdAt: Date
+    var updatedAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case kind
+        case status
+        case horizon
+        case summary
+        case successMetrics = "success_metrics"
+        case parentGoalID = "parent_goal_id"
+        case tags
+        case priority
+        case progress
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+struct GoalCreateRequest: Encodable, Sendable {
+    var title: String
+    var kind: String
+    var status: String
+    var horizon: String
+    var summary: String
+    var successMetrics: [String]
+    var parentGoalID: String?
+    var tags: [String]
+    var priority: Int
+    var progress: Double
+
+    enum CodingKeys: String, CodingKey {
+        case title
+        case kind
+        case status
+        case horizon
+        case summary
+        case successMetrics = "success_metrics"
+        case parentGoalID = "parent_goal_id"
+        case tags
+        case priority
+        case progress
+    }
+}
+
+struct GoalUpdateRequest: Encodable, Sendable {
+    var title: String?
+    var status: String?
+    var summary: String?
+    var successMetrics: [String]?
+    var tags: [String]?
+    var priority: Int?
+    var progress: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case title
+        case status
+        case summary
+        case successMetrics = "success_metrics"
+        case tags
+        case priority
+        case progress
+    }
+}
+
+struct GoalPlanResult: Codable, Sendable {
+    var goalID: String
+    var createdTasks: [TaskRecord]
+    var summary: String
+
+    enum CodingKeys: String, CodingKey {
+        case goalID = "goal_id"
+        case createdTasks = "created_tasks"
+        case summary
+    }
+}
+
+struct DeviceRecord: Codable, Identifiable, Sendable {
+    var id: String
+    var name: String
+    var deviceClass: String
+    var status: String
+    var capabilities: [String]
+    var lastSeenAt: Date
+    var metadata: [String: JSONValue]
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case deviceClass = "device_class"
+        case status
+        case capabilities
+        case lastSeenAt = "last_seen_at"
+        case metadata
+    }
+}
+
+struct DeviceUpsertRequest: Encodable, Sendable {
+    var id: String
+    var name: String
+    var deviceClass: String
+    var status: String
+    var capabilities: [String]
+    var metadata: [String: JSONValue]
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case deviceClass = "device_class"
+        case status
+        case capabilities
+        case metadata
     }
 }
 
@@ -486,12 +728,14 @@ struct CreateTaskRequest: Encodable, Sendable {
     var tags: [String]
     var successCriteria: [String]
     var riskLevel: String
+    var linkedGoalIDs: [String] = []
 
     enum CodingKeys: String, CodingKey {
         case objective
         case tags
         case successCriteria = "success_criteria"
         case riskLevel = "risk_level"
+        case linkedGoalIDs = "linked_goal_ids"
     }
 }
 

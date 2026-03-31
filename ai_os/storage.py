@@ -5,7 +5,16 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 
-from ai_os.domain import EntityRelation, EventRecord, ExecutionRunRecord, MemoryRecord, SelfProfile, TaskRecord
+from ai_os.domain import (
+    DeviceRecord,
+    EntityRelation,
+    EventRecord,
+    ExecutionRunRecord,
+    GoalRecord,
+    MemoryRecord,
+    SelfProfile,
+    TaskRecord,
+)
 
 
 class Database:
@@ -40,9 +49,14 @@ class Database:
                 CREATE TABLE IF NOT EXISTS memories (
                     id TEXT PRIMARY KEY,
                     memory_type TEXT NOT NULL,
+                    layer TEXT NOT NULL DEFAULT 'semantic',
                     title TEXT NOT NULL,
                     content TEXT NOT NULL,
                     tags TEXT NOT NULL,
+                    source TEXT NOT NULL DEFAULT 'user',
+                    confidence REAL NOT NULL DEFAULT 0.8,
+                    freshness TEXT NOT NULL DEFAULT 'active',
+                    related_goal_ids TEXT NOT NULL DEFAULT '[]',
                     created_at TEXT NOT NULL
                 );
 
@@ -60,6 +74,7 @@ class Database:
                     execution_plan TEXT NOT NULL,
                     rollback_plan TEXT,
                     blocker_reason TEXT,
+                    linked_goal_ids TEXT NOT NULL DEFAULT '[]',
                     artifact_paths TEXT NOT NULL,
                     verification_notes TEXT NOT NULL,
                     created_at TEXT NOT NULL,
@@ -92,6 +107,16 @@ class Database:
                     completed_at TEXT,
                     metadata TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS goals (
+                    id TEXT PRIMARY KEY,
+                    payload TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS devices (
+                    id TEXT PRIMARY KEY,
+                    payload TEXT NOT NULL
+                );
                 """
             )
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(tasks)").fetchall()}
@@ -107,6 +132,20 @@ class Database:
                 conn.execute("ALTER TABLE tasks ADD COLUMN artifact_paths TEXT NOT NULL DEFAULT '[]'")
             if "verification_notes" not in columns:
                 conn.execute("ALTER TABLE tasks ADD COLUMN verification_notes TEXT NOT NULL DEFAULT '[]'")
+            if "linked_goal_ids" not in columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN linked_goal_ids TEXT NOT NULL DEFAULT '[]'")
+
+            memory_columns = {row["name"] for row in conn.execute("PRAGMA table_info(memories)").fetchall()}
+            if "layer" not in memory_columns:
+                conn.execute("ALTER TABLE memories ADD COLUMN layer TEXT NOT NULL DEFAULT 'semantic'")
+            if "source" not in memory_columns:
+                conn.execute("ALTER TABLE memories ADD COLUMN source TEXT NOT NULL DEFAULT 'user'")
+            if "confidence" not in memory_columns:
+                conn.execute("ALTER TABLE memories ADD COLUMN confidence REAL NOT NULL DEFAULT 0.8")
+            if "freshness" not in memory_columns:
+                conn.execute("ALTER TABLE memories ADD COLUMN freshness TEXT NOT NULL DEFAULT 'active'")
+            if "related_goal_ids" not in memory_columns:
+                conn.execute("ALTER TABLE memories ADD COLUMN related_goal_ids TEXT NOT NULL DEFAULT '[]'")
 
 
 class SelfRepository:
@@ -141,15 +180,20 @@ class MemoryRepository:
         with self.db.session() as conn:
             conn.execute(
                 """
-                INSERT INTO memories (id, memory_type, title, content, tags, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO memories (id, memory_type, layer, title, content, tags, source, confidence, freshness, related_goal_ids, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.id,
                     record.memory_type.value,
+                    record.layer.value,
                     record.title,
                     record.content,
                     json.dumps(record.tags),
+                    record.source,
+                    record.confidence,
+                    record.freshness,
+                    json.dumps(record.related_goal_ids),
                     record.created_at.isoformat(),
                 ),
             )
@@ -158,15 +202,20 @@ class MemoryRepository:
     def list(self) -> list[MemoryRecord]:
         with self.db.session() as conn:
             rows = conn.execute(
-                "SELECT id, memory_type, title, content, tags, created_at FROM memories ORDER BY created_at DESC"
+                "SELECT id, memory_type, layer, title, content, tags, source, confidence, freshness, related_goal_ids, created_at FROM memories ORDER BY created_at DESC"
             ).fetchall()
         return [
             MemoryRecord(
                 id=row["id"],
                 memory_type=row["memory_type"],
+                layer=row["layer"],
                 title=row["title"],
                 content=row["content"],
                 tags=json.loads(row["tags"]),
+                source=row["source"],
+                confidence=row["confidence"],
+                freshness=row["freshness"],
+                related_goal_ids=json.loads(row["related_goal_ids"]),
                 created_at=row["created_at"],
             )
             for row in rows
@@ -183,8 +232,8 @@ class TaskRepository:
                 """
                 INSERT INTO tasks (
                     id, objective, tags, success_criteria, owner, status, subtasks, deadline,
-                    risk_level, execution_mode, execution_plan, rollback_plan, blocker_reason, artifact_paths, verification_notes, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    risk_level, execution_mode, execution_plan, rollback_plan, blocker_reason, linked_goal_ids, artifact_paths, verification_notes, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     task.id,
@@ -200,6 +249,7 @@ class TaskRepository:
                     task.execution_plan.model_dump_json(),
                     task.rollback_plan,
                     task.blocker_reason,
+                    json.dumps(task.linked_goal_ids),
                     json.dumps(task.artifact_paths),
                     json.dumps(task.verification_notes),
                     task.created_at.isoformat(),
@@ -224,7 +274,7 @@ class TaskRepository:
                 """
                 UPDATE tasks
                 SET objective = ?, tags = ?, success_criteria = ?, owner = ?, status = ?, subtasks = ?,
-                    deadline = ?, risk_level = ?, execution_mode = ?, execution_plan = ?, rollback_plan = ?, blocker_reason = ?, artifact_paths = ?, verification_notes = ?, updated_at = ?
+                    deadline = ?, risk_level = ?, execution_mode = ?, execution_plan = ?, rollback_plan = ?, blocker_reason = ?, linked_goal_ids = ?, artifact_paths = ?, verification_notes = ?, updated_at = ?
                 WHERE id = ?
                 """,
                 (
@@ -240,6 +290,7 @@ class TaskRepository:
                     task.execution_plan.model_dump_json(),
                     task.rollback_plan,
                     task.blocker_reason,
+                    json.dumps(task.linked_goal_ids),
                     json.dumps(task.artifact_paths),
                     json.dumps(task.verification_notes),
                     task.updated_at.isoformat(),
@@ -264,6 +315,7 @@ class TaskRepository:
             execution_plan=json.loads(row["execution_plan"]),
             rollback_plan=row["rollback_plan"],
             blocker_reason=row["blocker_reason"],
+            linked_goal_ids=json.loads(row["linked_goal_ids"]) if row["linked_goal_ids"] else [],
             artifact_paths=json.loads(row["artifact_paths"]),
             verification_notes=json.loads(row["verification_notes"]),
             created_at=row["created_at"],
@@ -465,3 +517,54 @@ class ExecutionRunRepository:
             completed_at=row["completed_at"],
             metadata=json.loads(row["metadata"]),
         )
+
+
+class GoalRepository:
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    def create(self, goal: GoalRecord) -> GoalRecord:
+        with self.db.session() as conn:
+            conn.execute("INSERT INTO goals (id, payload) VALUES (?, ?)", (goal.id, goal.model_dump_json()))
+        return goal
+
+    def list(self) -> list[GoalRecord]:
+        with self.db.session() as conn:
+            rows = conn.execute("SELECT payload FROM goals ORDER BY id DESC").fetchall()
+        return [GoalRecord.model_validate_json(row["payload"]) for row in rows]
+
+    def get(self, goal_id: str) -> GoalRecord | None:
+        with self.db.session() as conn:
+            row = conn.execute("SELECT payload FROM goals WHERE id = ?", (goal_id,)).fetchone()
+        return GoalRecord.model_validate_json(row["payload"]) if row else None
+
+    def update(self, goal: GoalRecord) -> GoalRecord:
+        with self.db.session() as conn:
+            conn.execute("UPDATE goals SET payload = ? WHERE id = ?", (goal.model_dump_json(), goal.id))
+        return goal
+
+
+class DeviceRepository:
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    def upsert(self, device: DeviceRecord) -> DeviceRecord:
+        with self.db.session() as conn:
+            conn.execute(
+                """
+                INSERT INTO devices (id, payload) VALUES (?, ?)
+                ON CONFLICT(id) DO UPDATE SET payload = excluded.payload
+                """,
+                (device.id, device.model_dump_json()),
+            )
+        return device
+
+    def list(self) -> list[DeviceRecord]:
+        with self.db.session() as conn:
+            rows = conn.execute("SELECT payload FROM devices ORDER BY id ASC").fetchall()
+        return [DeviceRecord.model_validate_json(row["payload"]) for row in rows]
+
+    def get(self, device_id: str) -> DeviceRecord | None:
+        with self.db.session() as conn:
+            row = conn.execute("SELECT payload FROM devices WHERE id = ?", (device_id,)).fetchone()
+        return DeviceRecord.model_validate_json(row["payload"]) if row else None

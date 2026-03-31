@@ -85,6 +85,35 @@ struct APIClient {
         try await send(path: "/memory/facts")
     }
 
+    func recallMemories(query: String, limit: Int = 5) async throws -> MemoryRecallResponse {
+        let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+        return try await send(path: "/memory/recall?query=\(encoded)&limit=\(limit)")
+    }
+
+    func fetchGoals() async throws -> [GoalRecord] {
+        try await send(path: "/goals")
+    }
+
+    func createGoal(_ request: GoalCreateRequest) async throws -> GoalRecord {
+        try await send(path: "/goals", method: "POST", body: request)
+    }
+
+    func updateGoal(id: String, request: GoalUpdateRequest) async throws -> GoalRecord {
+        try await send(path: "/goals/\(id)", method: "POST", body: request)
+    }
+
+    func planGoal(id: String) async throws -> GoalPlanResult {
+        try await send(path: "/goals/\(id)/plan", method: "POST")
+    }
+
+    func fetchDevices() async throws -> [DeviceRecord] {
+        try await send(path: "/devices")
+    }
+
+    func upsertDevice(_ request: DeviceUpsertRequest) async throws -> DeviceRecord {
+        try await send(path: "/devices", method: "PUT", body: request)
+    }
+
     func fetchCandidates(limit: Int = 20) async throws -> [CandidateTask] {
         try await send(path: "/candidates?limit=\(limit)")
     }
