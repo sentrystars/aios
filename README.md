@@ -1,5 +1,7 @@
 # AI OS
 
+[中文说明](./README.zh-CN.md)
+
 AI OS is a local-first personal operating system for AI-driven work.
 
 This repository now contains:
