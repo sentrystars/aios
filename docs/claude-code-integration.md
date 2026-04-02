@@ -2,10 +2,10 @@
 
 ## 1. Purpose
 
-This document defines how Claude Code is integrated into AI OS.
+This document defines how Claude Code is integrated into AIOS.
 
 Claude Code is not treated as a standalone product inside this repository.
-Instead, it is positioned as a **development execution runtime** within AI OS.
+Instead, it is positioned as a **development execution runtime** within AIOS.
 
 Its responsibility is to translate natural language development intent into concrete actions on codebases, including:
 
@@ -16,11 +16,11 @@ Its responsibility is to translate natural language development intent into conc
 
 In short:
 
-> Claude Code acts as the **"hands" of AI OS for software development tasks**
+> Claude Code acts as the **"hands" of AIOS for software development tasks**
 
 ---
 
-## 2. Placement in AI OS Architecture
+## 2. Placement in AIOS Architecture
 
 Claude Code is integrated under:
 
@@ -28,7 +28,7 @@ Claude Code is integrated under:
 runtimes/claude-code/
 ```
 
-Within the overall AI OS structure:
+Within the overall AIOS structure:
 
 ```
 AIOS/
@@ -57,7 +57,7 @@ Claude Code belongs to **Runtimes layer**.
 
 ### 3.1 Separation of Concerns
 
-Claude Code must remain **decoupled from the AI OS kernel**.
+Claude Code must remain **decoupled from the AIOS kernel**.
 
 * No direct modification of kernel logic
 * No embedding of business-specific assumptions
@@ -103,7 +103,7 @@ This requires:
 
 ## 4. Customization Strategy
 
-All AI OS-specific logic should be implemented **outside Claude Code core**, using one of the following methods:
+All AIOS-specific logic should be implemented **outside Claude Code core**, using one of the following methods:
 
 ### 4.1 Wrapper Layer (Recommended)
 
@@ -115,7 +115,7 @@ runtimes/dev-runtime/
 
 Responsibilities:
 
-* Accept AI OS task objects
+* Accept AIOS task objects
 * Translate them into Claude Code commands
 * Execute and collect results
 * Feed results back into kernel
@@ -134,7 +134,7 @@ Use plugins to:
 
 * Add custom commands
 * Define domain-specific agents
-* Integrate with AI OS capabilities
+* Integrate with AIOS capabilities
 
 ---
 
@@ -176,7 +176,7 @@ It is **NOT responsible for**:
 * Goal planning
 * Governance / risk control
 
-These belong to AI OS kernel.
+These belong to the AIOS kernel.
 
 ---
 
@@ -187,7 +187,7 @@ Typical flow:
 ```
 User Intent
    ↓
-AI OS Kernel (intent + planning)
+AIOS Kernel (intent + planning)
    ↓
 Task Object
    ↓
@@ -197,7 +197,7 @@ Claude Code Execution
    ↓
 Artifacts (files, commits, logs)
    ↓
-AI OS Memory / Task System
+AIOS Memory / Task System
 ```
 
 ---
@@ -252,7 +252,7 @@ Future runtimes may include:
 
 Long term vision:
 
-> AI OS becomes a unified execution system where different runtimes handle different domains.
+> AIOS becomes a unified execution system where different runtimes handle different domains.
 
 Claude Code represents:
 
@@ -268,7 +268,7 @@ Claude Code is integrated as:
 * an **execution engine**, not a brain
 * a **replaceable module**, not a dependency lock
 
-This ensures AI OS remains:
+This ensures AIOS remains:
 
 * modular
 * evolvable

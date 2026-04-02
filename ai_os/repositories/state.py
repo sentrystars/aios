@@ -91,14 +91,15 @@ class TaskRepository:
             conn.execute(
                 """
                 INSERT INTO tasks (
-                    id, objective, tags, success_criteria, owner, status, subtasks, deadline,
-                    risk_level, execution_mode, runtime_name, execution_plan, rollback_plan, blocker_reason, linked_goal_ids, artifact_paths, verification_notes, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    id, objective, tags, intelligence_trace, success_criteria, owner, status, subtasks, deadline,
+                    risk_level, execution_mode, runtime_name, execution_plan, implementation_contract, rollback_plan, blocker_reason, linked_goal_ids, artifact_paths, verification_notes, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     task.id,
                     task.objective,
                     json.dumps(task.tags),
+                    json.dumps(task.intelligence_trace),
                     json.dumps(task.success_criteria),
                     task.owner,
                     task.status.value,
@@ -108,6 +109,7 @@ class TaskRepository:
                     task.execution_mode.value,
                     task.runtime_name,
                     task.execution_plan.model_dump_json(),
+                    task.implementation_contract.model_dump_json() if task.implementation_contract else None,
                     task.rollback_plan,
                     task.blocker_reason,
                     json.dumps(task.linked_goal_ids),
@@ -134,13 +136,14 @@ class TaskRepository:
             conn.execute(
                 """
                 UPDATE tasks
-                SET objective = ?, tags = ?, success_criteria = ?, owner = ?, status = ?, subtasks = ?,
-                    deadline = ?, risk_level = ?, execution_mode = ?, runtime_name = ?, execution_plan = ?, rollback_plan = ?, blocker_reason = ?, linked_goal_ids = ?, artifact_paths = ?, verification_notes = ?, updated_at = ?
+                SET objective = ?, tags = ?, intelligence_trace = ?, success_criteria = ?, owner = ?, status = ?, subtasks = ?,
+                    deadline = ?, risk_level = ?, execution_mode = ?, runtime_name = ?, execution_plan = ?, implementation_contract = ?, rollback_plan = ?, blocker_reason = ?, linked_goal_ids = ?, artifact_paths = ?, verification_notes = ?, updated_at = ?
                 WHERE id = ?
                 """,
                 (
                     task.objective,
                     json.dumps(task.tags),
+                    json.dumps(task.intelligence_trace),
                     json.dumps(task.success_criteria),
                     task.owner,
                     task.status.value,
@@ -150,6 +153,7 @@ class TaskRepository:
                     task.execution_mode.value,
                     task.runtime_name,
                     task.execution_plan.model_dump_json(),
+                    task.implementation_contract.model_dump_json() if task.implementation_contract else None,
                     task.rollback_plan,
                     task.blocker_reason,
                     json.dumps(task.linked_goal_ids),
@@ -167,6 +171,7 @@ class TaskRepository:
             id=row["id"],
             objective=row["objective"],
             tags=json.loads(row["tags"]),
+            intelligence_trace=json.loads(row["intelligence_trace"]) if row["intelligence_trace"] else {},
             success_criteria=json.loads(row["success_criteria"]),
             owner=row["owner"],
             status=row["status"],
@@ -176,6 +181,7 @@ class TaskRepository:
             execution_mode=row["execution_mode"],
             runtime_name=row["runtime_name"],
             execution_plan=json.loads(row["execution_plan"]),
+            implementation_contract=json.loads(row["implementation_contract"]) if row["implementation_contract"] else None,
             rollback_plan=row["rollback_plan"],
             blocker_reason=row["blocker_reason"],
             linked_goal_ids=json.loads(row["linked_goal_ids"]) if row["linked_goal_ids"] else [],

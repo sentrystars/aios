@@ -199,6 +199,39 @@ struct IntakeResponse: Codable, Sendable {
     var task: TaskRecord?
 }
 
+struct ImplementationTaskContract: Codable, Sendable {
+    struct OutputRequirement: Codable, Sendable {
+        var key: String
+        var label: String
+        var source: String
+        var required: Bool
+    }
+
+    var summary: String
+    var deliverableType: String
+    var executionScope: [String]
+    var acceptanceCriteria: [String]
+    var constraints: [String]
+    var plannedSubtasks: [String]
+    var expectedOutputs: [String]
+    var outputRequirements: [OutputRequirement]?
+    var repoInstructions: [String]
+    var preferredRuntime: String?
+
+    enum CodingKeys: String, CodingKey {
+        case summary
+        case deliverableType = "deliverable_type"
+        case executionScope = "execution_scope"
+        case acceptanceCriteria = "acceptance_criteria"
+        case constraints
+        case plannedSubtasks = "planned_subtasks"
+        case expectedOutputs = "expected_outputs"
+        case outputRequirements = "output_requirements"
+        case repoInstructions = "repo_instructions"
+        case preferredRuntime = "preferred_runtime"
+    }
+}
+
 struct TaskRecord: Codable, Identifiable, Sendable {
     var id: String
     var objective: String
@@ -217,6 +250,8 @@ struct TaskRecord: Codable, Identifiable, Sendable {
     var linkedGoalIDs: [String]
     var artifactPaths: [String]
     var verificationNotes: [String]
+    var intelligenceTrace: [String: JSONValue]
+    var implementationContract: ImplementationTaskContract?
     var createdAt: Date
     var updatedAt: Date
 
@@ -238,6 +273,8 @@ struct TaskRecord: Codable, Identifiable, Sendable {
         case linkedGoalIDs = "linked_goal_ids"
         case artifactPaths = "artifact_paths"
         case verificationNotes = "verification_notes"
+        case intelligenceTrace = "intelligence_trace"
+        case implementationContract = "implementation_contract"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -996,6 +1033,52 @@ enum JSONValue: Codable, Hashable, Sendable {
             return value ? "true" : "false"
         case .null, .object, .array:
             return nil
+        }
+    }
+
+    var stringArrayValue: [String]? {
+        guard case .array(let values) = self else {
+            return nil
+        }
+        return values.compactMap { $0.stringValue }
+    }
+
+    var objectValue: [String: JSONValue]? {
+        guard case .object(let value) = self else {
+            return nil
+        }
+        return value
+    }
+
+    var isNull: Bool {
+        if case .null = self {
+            return true
+        }
+        return false
+    }
+
+    var prettyText: String {
+        switch self {
+        case .string(let value):
+            return value
+        case .number(let value):
+            if value.rounded() == value {
+                return String(Int(value))
+            }
+            return String(value)
+        case .bool(let value):
+            return value ? "true" : "false"
+        case .null:
+            return "null"
+        case .object, .array:
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            guard let data = try? encoder.encode(self),
+                  let text = String(data: data, encoding: .utf8)
+            else {
+                return displayText
+            }
+            return text
         }
     }
 }

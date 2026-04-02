@@ -483,7 +483,7 @@ final class AppState: ObservableObject {
             }
             await reloadAll()
             if errorMessage == nil {
-                successMessage = "Switched AI OS backend to port 8787 to avoid a local port conflict."
+                successMessage = "Switched AIOS backend to port 8787 to avoid a local port conflict."
             }
         }
         if selectedDestination == .candidates || !candidates.isEmpty {
@@ -730,7 +730,7 @@ final class AppState: ObservableObject {
             selectedTaskID = task.id
             successMessage = "Quick task created."
             await postNotification(
-                title: "AI OS",
+                title: "AIOS",
                 body: "Quick task created.",
                 route: .task,
                 taskID: task.id
@@ -1236,7 +1236,7 @@ final class AppState: ObservableObject {
             devices = try await apiClient.fetchDevices()
             latestMemoryRecall = try? await apiClient.recallMemories(query: selfProfile.currentPhase, limit: 3)
             successMessage = "Self profile updated."
-            await postNotification(title: "AI OS", body: "Self profile updated.", route: .dashboard)
+            await postNotification(title: "AIOS", body: "Self profile updated.", route: .dashboard)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -1251,7 +1251,7 @@ final class AppState: ObservableObject {
         successMessage = nil
         do {
             latestIntentEvaluation = try await apiClient.evaluateIntent(InputRequest(text: text))
-            successMessage = self.text("AI OS has read the request.", "AI OS 已经读完这条需求。")
+            successMessage = self.text("AIOS has read the request.", "AIOS 已经读完这条需求。")
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -1277,16 +1277,16 @@ final class AppState: ObservableObject {
                 await reloadAll()
                 selectTask(id: advancedTask.id)
                 if advancedTask.status == "blocked" {
-                    successMessage = self.text("AI OS needs a confirmation before it can continue.", "AI OS 需要你确认后才能继续。")
+                    successMessage = self.text("AIOS needs a confirmation before it can continue.", "AIOS 需要你确认后才能继续。")
                 } else if advancedTask.status == "done" {
-                    successMessage = self.text("AI OS has completed this request.", "AI OS 已经完成这条需求。")
+                    successMessage = self.text("AIOS has completed this request.", "AIOS 已经完成这条需求。")
                 } else {
-                    successMessage = self.text("AI OS is still working on this request.", "AI OS 正在继续推进这条需求。")
+                    successMessage = self.text("AIOS is still working on this request.", "AIOS 正在继续推进这条需求。")
                 }
             } else {
                 inboxText = ""
                 await reloadAll()
-                successMessage = self.text("AI OS has processed the request.", "AI OS 已经处理完这条需求。")
+                successMessage = self.text("AIOS has processed the request.", "AIOS 已经处理完这条需求。")
             }
         } catch {
             errorMessage = error.localizedDescription
@@ -1358,7 +1358,7 @@ final class AppState: ObservableObject {
             verificationDraft = VerificationDraft()
             successMessage = "Task verification submitted."
             await postNotification(
-                title: "AI OS",
+                title: "AIOS",
                 body: "Task verification submitted.",
                 route: .task,
                 taskID: task.id
@@ -1384,7 +1384,7 @@ final class AppState: ObservableObject {
             confirmationDraft = ConfirmationDraft()
             successMessage = approved ? "Task approved." : "Task rejected."
             await postNotification(
-                title: "AI OS",
+                title: "AIOS",
                 body: approved ? "Task approved." : "Task rejected.",
                 route: .task,
                 taskID: task.id
@@ -1432,7 +1432,7 @@ final class AppState: ObservableObject {
             reflectionDraft = ReflectionDraft()
             successMessage = "Reflection stored."
             await postNotification(
-                title: "AI OS",
+                title: "AIOS",
                 body: "Task reflection stored.",
                 route: .task,
                 taskID: task.id
@@ -1463,7 +1463,7 @@ final class AppState: ObservableObject {
             candidates = try await apiClient.fetchCandidates()
             successMessage = "Candidate accepted."
             await postNotification(
-                title: "AI OS",
+                title: "AIOS",
                 body: "Candidate accepted into task queue.",
                 route: .task,
                 taskID: result.task.id
@@ -1485,7 +1485,7 @@ final class AppState: ObservableObject {
             candidates = try await apiClient.fetchCandidates()
             successMessage = "Auto-accepted \(result.accepted.count) candidates."
             await postNotification(
-                title: "AI OS",
+                title: "AIOS",
                 body: "Auto-accepted \(result.accepted.count) candidates.",
                 route: result.accepted.first == nil ? .dashboard : .task,
                 taskID: result.accepted.first?.task.id
@@ -1524,7 +1524,7 @@ final class AppState: ObservableObject {
             isPresentingDeferCandidateSheet = false
             selectedCandidateForDefer = nil
             successMessage = "Candidate deferred."
-            await postNotification(title: "AI OS", body: "Candidate deferred.", route: .dashboard)
+            await postNotification(title: "AIOS", body: "Candidate deferred.", route: .dashboard)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -1547,7 +1547,7 @@ final class AppState: ObservableObject {
             candidates = try await apiClient.fetchCandidates()
             successMessage = "Scheduler tick completed."
             await postNotification(
-                title: "AI OS",
+                title: "AIOS",
                 body: "Scheduler tick completed.",
                 route: latestSchedulerResult?.accepted.first == nil ? .dashboard : .task,
                 taskID: latestSchedulerResult?.accepted.first?.task.id

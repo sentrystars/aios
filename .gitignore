@@ -19,6 +19,7 @@ dist/
 # Local runtime state
 .ai_os/
 .data/
+.env.local
 .tmpdata/
 .tmpdata2/
 .tmpworkspace*/

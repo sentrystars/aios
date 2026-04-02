@@ -45,6 +45,8 @@ from ai_os.domain import (
     InsightAssessment,
     IntentEnvelope,
     IntentType,
+    LearningInsight,
+    LearningRecallResponse,
     MemoryCreatePayload,
     MemoryLayer,
     MemoryRecallItem,
@@ -432,6 +434,42 @@ class MemoryEngine:
             ],
         )
 
+    def recall_learning(self, query: str, limit: int = 5) -> LearningRecallResponse:
+        lowered = query.lower()
+        scored: list[tuple[float, MemoryRecord, str, str]] = []
+        for record in self.repo.list():
+            if record.memory_type != MemoryType.LEARNING:
+                continue
+            haystack = " ".join([record.title, record.content, " ".join(record.tags)]).lower()
+            overlap = sum(1 for token in lowered.split() if token and token in haystack)
+            if query and overlap == 0:
+                continue
+            category = self._learning_category(record)
+            category_bonus = 0.15 if category in lowered else 0.0
+            score = min(1.0, 0.2 * overlap + 0.4 * record.confidence + category_bonus)
+            reason = (
+                f"Matched {overlap} query terms in structured {category} learning."
+                if query
+                else f"Recent structured {category} learning."
+            )
+            scored.append((score, record, reason, category))
+        scored.sort(key=lambda item: (item[0], item[1].created_at), reverse=True)
+        return LearningRecallResponse(
+            query=query,
+            items=[
+                LearningInsight(
+                    memory_id=record.id,
+                    title=record.title,
+                    category=category,
+                    score=score,
+                    reason=reason,
+                    confidence=record.confidence,
+                    tags=record.tags,
+                )
+                for score, record, reason, category in scored[:limit]
+            ],
+        )
+
     def reflect_task(self, task: TaskRecord, payload: TaskReflectionPayload) -> MemoryRecord:
         content = payload.summary
         if payload.lessons:
@@ -457,4 +495,109 @@ class MemoryEngine:
             target_type="memory",
             target_id=saved.id,
         )
+        for learning in self._derive_learning_records(task, payload):
+            derived = self.repo.create(learning)
+            self.events.append("memory.learning_created", derived.model_dump(mode="json"))
+            self.relations.link(
+                source_type="task",
+                source_id=task.id,
+                relation_type="produced_learning",
+                target_type="memory",
+                target_id=derived.id,
+            )
         return saved
+
+    @staticmethod
+    def _learning_category(record: MemoryRecord) -> str:
+        for tag in record.tags:
+            if tag.startswith("learning:"):
+                return tag.split(":", 1)[1]
+        return "general"
+
+    @staticmethod
+    def _tokenize_text(value: str) -> list[str]:
+        tokens: list[str] = []
+        current: list[str] = []
+        for char in value.lower():
+            if char.isalnum():
+                current.append(char)
+                continue
+            if current:
+                token = "".join(current)
+                if len(token) >= 3:
+                    tokens.append(token)
+                current = []
+        if current:
+            token = "".join(current)
+            if len(token) >= 3:
+                tokens.append(token)
+        return tokens
+
+    def _derive_learning_records(self, task: TaskRecord, payload: TaskReflectionPayload) -> list[MemoryRecord]:
+        records: list[MemoryRecord] = []
+        runtime_name = task.runtime_name or task.execution_plan.runtime_name or "none"
+        status_value = task.status.value
+        base_tags = [
+            "learning:reflection",
+            f"task:{task.id}",
+            f"status:{status_value}",
+            f"execution_mode:{task.execution_mode.value}",
+            f"runtime:{runtime_name}",
+        ]
+        for token in self._tokenize_text(task.objective)[:6]:
+            base_tags.append(f"objective:{token}")
+        records.append(
+            MemoryRecord(
+                id=str(uuid4()),
+                memory_type=MemoryType.LEARNING,
+                layer=MemoryLayer.PROCEDURAL,
+                title=f"Task outcome learning: {task.objective[:80]}",
+                content=(
+                    f"Objective: {task.objective}\n"
+                    f"Outcome: {payload.summary}\n"
+                    f"Runtime: {runtime_name}\n"
+                    f"Execution mode: {task.execution_mode.value}\n"
+                    f"Status at reflection: {status_value}"
+                ),
+                tags=base_tags,
+                source="ai_os_learning",
+                confidence=0.8,
+                freshness="active",
+                related_goal_ids=task.linked_goal_ids,
+            )
+        )
+        for lesson in payload.lessons:
+            category, normalized_tags, title = self._classify_lesson(lesson, task, runtime_name)
+            records.append(
+                MemoryRecord(
+                    id=str(uuid4()),
+                    memory_type=MemoryType.LEARNING,
+                    layer=MemoryLayer.PROCEDURAL,
+                    title=title,
+                    content=lesson,
+                    tags=normalized_tags,
+                    source="ai_os_learning",
+                    confidence=0.9,
+                    freshness="active",
+                    related_goal_ids=task.linked_goal_ids,
+                )
+            )
+        return records
+
+    def _classify_lesson(self, lesson: str, task: TaskRecord, runtime_name: str) -> tuple[str, list[str], str]:
+        lowered = lesson.lower().strip()
+        parts = [part.strip() for part in lowered.split(":") if part.strip()]
+        category = parts[0] if parts else "strategy"
+        normalized_tags = [
+            f"learning:{category}",
+            f"task:{task.id}",
+            f"execution_mode:{task.execution_mode.value}",
+            f"runtime:{runtime_name}",
+        ]
+        for part in parts[1:]:
+            normalized_tags.append(f"context:{part}")
+        for token in self._tokenize_text(lesson)[:6]:
+            normalized_tags.append(f"lesson:{token}")
+        detail = " / ".join(parts[1:3]) if len(parts) > 1 else task.objective[:48]
+        title = f"{category.title()} lesson: {detail}"
+        return category, normalized_tags, title

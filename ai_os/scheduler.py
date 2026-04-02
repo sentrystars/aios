@@ -186,9 +186,12 @@ class SchedulerService:
 
     def _auto_start_planned_tasks(self) -> list[str]:
         started: list[str] = []
-        for task in self.task_engine.list():
-            if task.status != TaskStatus.PLANNED:
-                continue
+        planned_tasks = [task for task in self.task_engine.list() if task.status == TaskStatus.PLANNED]
+        planned_tasks.sort(
+            key=lambda task: (self._planned_task_autonomy_score(task), task.updated_at),
+            reverse=True,
+        )
+        for task in planned_tasks:
             if task.execution_plan.confirmation_required:
                 continue
             self.delivery.execute_task(task.id)
@@ -214,7 +217,7 @@ class SchedulerService:
         existing_followups = {
             task.objective
             for task in self.task_engine.list()
-            if task.objective.startswith("Resolve blocker:")
+            if task.objective.startswith("Resolve blocker:") or task.objective.startswith("Replan task:")
         }
         created: list[str] = []
         for task in self.task_engine.list():
@@ -224,22 +227,113 @@ class SchedulerService:
                 continue
             if self._should_escalate(task.id, escalate_after_hits, stale_hit_counts):
                 continue
-            followup_objective = f"Resolve blocker: {task.objective}"
+            suggested_next_step = self._runtime_suggested_next_step(task.id)
+            is_replan = self._needs_replan(task, suggested_next_step)
+            followup_objective = (
+                suggested_next_step
+                if is_replan and suggested_next_step.startswith("Replan task:")
+                else f"Replan task: {task.objective}"
+                if is_replan
+                else f"Resolve blocker: {task.objective}"
+            )
             if followup_objective in existing_followups:
                 continue
+            success_criteria = (
+                [
+                    "A revised execution path addresses the failed verification evidence.",
+                    "The next execution step is explicit and testable.",
+                ]
+                if is_replan
+                else ["Blocker is clarified or removed."]
+            )
+            unmet_output_keys = self._runtime_unmet_contract_output_keys(task.id)
+            unmet_outputs = self._runtime_unmet_contract_outputs(task.id)
+            if is_replan and unmet_output_keys:
+                success_criteria.append(f"Resolve unmet contract requirements: {', '.join(unmet_output_keys)}.")
+            followup_tags = ["task:replan", f"source_task:{task.id}"] if is_replan else [f"source_task:{task.id}"]
             followup = self.task_engine.create(
                 TaskCreatePayload(
                     objective=followup_objective,
-                    success_criteria=["Blocker is clarified or removed."],
+                    success_criteria=success_criteria,
                     risk_level=task.risk_level,
+                    tags=followup_tags,
                 )
             )
+            self.relation_service.link("task", task.id, "spawned_followup", "task", followup.id)
             created.append(task.id)
             self.event_repo.append(
-                "scheduler.stalled_task.followup_created",
-                {"task_id": task.id, "followup_task_id": followup.id, "stale_after_minutes": stale_after_minutes},
+                "scheduler.stalled_task.replan_created" if is_replan else "scheduler.stalled_task.followup_created",
+                {
+                    "task_id": task.id,
+                    "followup_task_id": followup.id,
+                    "stale_after_minutes": stale_after_minutes,
+                    "reason": "verification_failed" if is_replan else "blocked",
+                    "suggested_next_step": suggested_next_step,
+                    "unmet_contract_output_keys": unmet_output_keys,
+                    "unmet_contract_outputs": unmet_outputs,
+                },
             )
         return created
+
+    def _runtime_suggested_next_step(self, task_id: str) -> str:
+        run = self.delivery.execution_runs.latest_for_task(task_id)
+        if not run:
+            return ""
+        implementation_result = run.metadata.get("runtime_implementation_result", {})
+        if not isinstance(implementation_result, dict):
+            return ""
+        suggested_next_step = implementation_result.get("suggested_next_step", "")
+        return suggested_next_step if isinstance(suggested_next_step, str) else ""
+
+    def _runtime_unmet_contract_outputs(self, task_id: str) -> list[str]:
+        run = self.delivery.execution_runs.latest_for_task(task_id)
+        if not run:
+            return []
+        verification_summary = run.metadata.get("verification_summary", {})
+        if not isinstance(verification_summary, dict):
+            return []
+        unmet_outputs = verification_summary.get("unmet_contract_outputs", [])
+        if not isinstance(unmet_outputs, list):
+            return []
+        return [str(item) for item in unmet_outputs if item]
+
+    def _runtime_unmet_contract_output_keys(self, task_id: str) -> list[str]:
+        run = self.delivery.execution_runs.latest_for_task(task_id)
+        if not run:
+            return []
+        verification_summary = run.metadata.get("verification_summary", {})
+        if not isinstance(verification_summary, dict):
+            return []
+        unmet_keys = verification_summary.get("unmet_contract_output_keys", [])
+        if not isinstance(unmet_keys, list):
+            return []
+        return [str(item) for item in unmet_keys if item]
+
+    @staticmethod
+    def _needs_replan(task: TaskRecord, suggested_next_step: str = "") -> bool:
+        if suggested_next_step.startswith("Replan task:"):
+            return True
+        return bool(task.blocker_reason and "verification did not satisfy" in task.blocker_reason.lower())
+
+    @staticmethod
+    def _planned_task_autonomy_score(task: TaskRecord) -> int:
+        score = 0
+        tags = set(task.tags)
+        if task.implementation_contract is not None:
+            score += 3
+        if task.execution_plan.runtime_name or task.runtime_name:
+            score += 1
+        if task.intelligence_trace.get("provider"):
+            score += 1
+        if "intelligence:cloud" in tags or "intelligence:deepseek" in tags:
+            score += 1
+        if "task:implementation" in tags:
+            score += 1
+        if task.execution_plan.confirmation_required:
+            score -= 3
+        if "governance:cautious" in tags or "guardrail:reflection" in tags:
+            score -= 2
+        return score
 
     def _schedule_stale_executing_reminders(
         self, stale_after_minutes: int, escalate_after_hits: int, stale_hit_counts: dict[str, int]

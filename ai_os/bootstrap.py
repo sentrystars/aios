@@ -5,6 +5,7 @@ from pathlib import Path
 
 from ai_os.capabilities import CapabilityRegistry
 from ai_os.candidates import CandidateTaskService
+from ai_os.cloud_intelligence import DeepSeekConversationIntelligence
 from ai_os.domain import DeviceStatus, DeviceUpsertPayload
 from ai_os.kernel import (
     CognitionEngine,
@@ -69,6 +70,7 @@ def build_container(data_dir: Path) -> KernelContainer:
     relation_repo = RelationRepository(db)
     execution_run_repo = ExecutionRunRepository(db)
     task_repo = TaskRepository(db)
+    conversation_intelligence = DeepSeekConversationIntelligence.from_env()
     governance = GovernanceLayer()
     relation_service = RelationService(relation_repo, events)
     execution_run_service = ExecutionRunService(execution_run_repo, events, relation_service)
@@ -76,9 +78,9 @@ def build_container(data_dir: Path) -> KernelContainer:
     self_kernel = SelfKernel(self_repo, events)
     goal_service = GoalService(goal_repo, events, memory_engine=memory_engine, self_kernel=self_kernel)
     device_service = DeviceService(device_repo, events)
-    intent_engine = IntentEngine(governance)
-    cognition_engine = CognitionEngine(memory_engine=memory_engine)
-    task_engine = TaskEngine(task_repo, events)
+    intent_engine = IntentEngine(governance, conversation_intelligence=conversation_intelligence)
+    cognition_engine = CognitionEngine(memory_engine=memory_engine, conversation_intelligence=conversation_intelligence)
+    task_engine = TaskEngine(task_repo, events, memory_engine=memory_engine)
     capability_bus = CapabilityRegistry(workspace_root)
     runtime_registry = RuntimeRegistry(workspace_root=workspace_root, app_root=app_root)
     policy_engine = PolicyEngine()

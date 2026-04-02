@@ -6,6 +6,7 @@ from typing import Any
 
 from ai_os.domain import RuntimeDescriptor, RuntimeInvocation, RuntimeManifest, TaskRecord
 from ai_os.policy import PolicyRule
+from ai_os.verification import ContextualRequirementEvaluator
 
 from .base import RuntimeAdapter
 from .claude_code import ClaudeCodeRuntime
@@ -48,6 +49,12 @@ class RuntimeRegistry:
         for runtime in self._runtimes.values():
             rules.extend(runtime.contributed_policy_rules())
         return rules
+
+    def contributed_verification_evaluators(self) -> list[ContextualRequirementEvaluator]:
+        evaluators: list[ContextualRequirementEvaluator] = []
+        for runtime in self._runtimes.values():
+            evaluators.extend(runtime.contributed_verification_evaluators())
+        return evaluators
 
     def _discover(self) -> None:
         manifests_root = self.app_root / "runtimes"

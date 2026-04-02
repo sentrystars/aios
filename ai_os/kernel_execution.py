@@ -42,6 +42,7 @@ from ai_os.domain import (
     GoalStatus,
     GoalUpdatePayload,
     InputPayload,
+    ImplementationTaskContract,
     IntakeResponse,
     InsightAssessment,
     IntentEnvelope,
@@ -80,6 +81,7 @@ from ai_os.storage import (
     TaskRepository,
 )
 
+from ai_os.cloud_intelligence import CloudIntentHint, DeepSeekConversationIntelligence
 from ai_os.kernel_services import MemoryEngine
 
 class GovernanceLayer:
@@ -95,17 +97,33 @@ class GovernanceLayer:
 
 
 class CognitionEngine:
-    def __init__(self, memory_engine: MemoryEngine | None = None) -> None:
+    def __init__(
+        self,
+        memory_engine: MemoryEngine | None = None,
+        conversation_intelligence: DeepSeekConversationIntelligence | None = None,
+    ) -> None:
         self.memory_engine = memory_engine
+        self.conversation_intelligence = conversation_intelligence
+        self.last_cloud_hint: CloudIntentHint | None = None
 
     def analyze(self, intent: IntentEnvelope, profile: SelfProfile) -> CognitionReport:
         lowered = intent.goal.lower()
+        cloud_hint = self.conversation_intelligence.analyze(intent.goal, profile) if self.conversation_intelligence else None
+        self.last_cloud_hint = cloud_hint
         execution_mode = TaskEngine.infer_execution_mode(intent.goal)
         runtime_name = TaskEngine.infer_runtime_name(intent.goal, execution_mode)
+        execution_mode = self._resolve_learned_execution_mode(intent.goal, execution_mode)
+        runtime_name = self._resolve_learned_runtime_name(intent.goal, execution_mode, runtime_name)
+        if cloud_hint and cloud_hint.execution_mode:
+            execution_mode = cloud_hint.execution_mode
+        if cloud_hint and cloud_hint.runtime_name and execution_mode == ExecutionMode.FILE_ARTIFACT:
+            runtime_name = cloud_hint.runtime_name
         execution_plan = self._build_execution_plan(execution_mode, runtime_name=runtime_name)
         reflection_style = self._reflection_context_style(intent.goal)
-        understanding = self._build_understanding(intent.goal, profile)
-        suggested_task_tags: list[str] = []
+        understanding = self._build_understanding(intent.goal, profile, cloud_hint)
+        suggested_task_tags: list[str] = list(cloud_hint.suggested_task_tags) if cloud_hint else []
+        if cloud_hint:
+            suggested_task_tags.extend(["intelligence:cloud", f"intelligence:{cloud_hint.provider}", f"model:{cloud_hint.model}"])
         realistic = not any(token in lowered for token in ("teleport", "infinite", "instantly rich"))
         safety_ok = intent.risk_level != RiskLevel.HIGH
         notes: list[str] = []
@@ -197,7 +215,11 @@ class CognitionEngine:
         )
 
     @staticmethod
-    def _build_understanding(goal: str, profile: SelfProfile) -> StructuredUnderstanding:
+    def _build_understanding(
+        goal: str,
+        profile: SelfProfile,
+        cloud_hint: CloudIntentHint | None = None,
+    ) -> StructuredUnderstanding:
         lowered = goal.lower()
         explicit_constraints: list[str] = []
         inferred_constraints: list[str] = []
@@ -227,14 +249,24 @@ class CognitionEngine:
             if any(token in lowered for token in ("week", "tomorrow", "soon", "本周", "明天", "稍后"))
             else "unspecified"
         )
+        hint = cloud_hint
+        merged_explicit = [*explicit_constraints, *(hint.explicit_constraints if hint else [])]
+        merged_inferred = [*inferred_constraints, *(hint.inferred_constraints if hint else [])]
+        merged_stakeholders = stakeholders or (hint.stakeholders if hint else [])
         return StructuredUnderstanding(
             requested_outcome=goal,
-            success_shape="A tracked next step with evidence, governance fit, and linkage to longer-term context.",
-            explicit_constraints=explicit_constraints,
-            inferred_constraints=inferred_constraints,
-            stakeholders=stakeholders,
-            time_horizon=time_horizon,
-            continuation_preference="continue_existing_work_if_possible",
+            success_shape=(
+                hint.success_shape
+                if hint and hint.success_shape
+                else "A tracked next step with evidence, governance fit, and linkage to longer-term context."
+            ),
+            explicit_constraints=TaskEngine._dedupe_ordered(merged_explicit),
+            inferred_constraints=TaskEngine._dedupe_ordered(merged_inferred),
+            stakeholders=TaskEngine._dedupe_ordered(merged_stakeholders),
+            time_horizon=hint.time_horizon if hint and hint.time_horizon else time_horizon,
+            continuation_preference=(
+                hint.continuation_preference if hint and hint.continuation_preference else "continue_existing_work_if_possible"
+            ),
         )
 
     def _reflection_context_style(self, goal: str) -> str | None:
@@ -242,6 +274,20 @@ class CognitionEngine:
             return None
         lowered = goal.lower()
         for memory in self.memory_engine.list():
+            if memory.memory_type == MemoryType.LEARNING:
+                tags = set(memory.tags)
+                for tag in tags:
+                    if not tag.startswith("context:"):
+                        continue
+                    keyword = tag.split(":", 1)[1].strip().lower()
+                    if keyword and keyword in lowered:
+                        if "learning:guardrail" in tags or "context:cautious" in tags:
+                            return "cautious"
+                        if "context:bold" in tags:
+                            return "bold"
+                        if "context:balanced" in tags:
+                            return "balanced"
+                continue
             if memory.memory_type != MemoryType.REFLECTION:
                 continue
             for line in memory.content.splitlines():
@@ -260,6 +306,39 @@ class CognitionEngine:
                     if style in {"balanced", "bold"}:
                         return style
         return None
+
+    def _resolve_learned_execution_mode(self, goal: str, default_mode: ExecutionMode) -> ExecutionMode:
+        if not self.memory_engine:
+            return default_mode
+        insights = self.memory_engine.recall_learning(query=goal, limit=5).items
+        for insight in insights:
+            if insight.category != "execution_mode":
+                continue
+            for tag in insight.tags:
+                if not tag.startswith("context:"):
+                    continue
+                raw_mode = tag.split(":", 1)[1]
+                try:
+                    return ExecutionMode(raw_mode)
+                except ValueError:
+                    continue
+        return default_mode
+
+    def _resolve_learned_runtime_name(
+        self, goal: str, mode: ExecutionMode, default_runtime_name: str | None
+    ) -> str | None:
+        if not self.memory_engine or mode != ExecutionMode.FILE_ARTIFACT:
+            return default_runtime_name
+        insights = self.memory_engine.recall_learning(query=goal, limit=5).items
+        for insight in insights:
+            if insight.category != "runtime":
+                continue
+            for tag in insight.tags:
+                if tag.startswith("context:"):
+                    candidate = tag.split(":", 1)[1]
+                    if candidate != "none":
+                        return candidate
+        return default_runtime_name
 
     @staticmethod
     def _build_execution_plan(mode: ExecutionMode, runtime_name: str | None = None) -> ExecutionPlan:
@@ -335,13 +414,21 @@ class CognitionEngine:
 
 
 class IntentEngine:
-    def __init__(self, governance: GovernanceLayer) -> None:
+    def __init__(
+        self,
+        governance: GovernanceLayer,
+        conversation_intelligence: DeepSeekConversationIntelligence | None = None,
+    ) -> None:
         self.governance = governance
+        self.conversation_intelligence = conversation_intelligence
+        self.last_cloud_hint: CloudIntentHint | None = None
 
     def evaluate(self, payload: InputPayload, profile: SelfProfile) -> IntentEnvelope:
         text = payload.text.strip()
         lowered = text.lower()
         risk_level, needs_confirmation, governance_note = self.governance.assess(text)
+        cloud_hint = self.conversation_intelligence.analyze(text, profile) if self.conversation_intelligence else None
+        self.last_cloud_hint = cloud_hint
 
         if not text:
             intent_type = IntentType.CLARIFICATION
@@ -363,11 +450,23 @@ class IntentEngine:
             intent_type = IntentType.CONFLICT
             needs_confirmation = True
             rationale = "Input appears to cross a declared user boundary."
+        elif cloud_hint and cloud_hint.intent_type:
+            intent_type = cloud_hint.intent_type
+            if cloud_hint.needs_confirmation is not None:
+                needs_confirmation = needs_confirmation or cloud_hint.needs_confirmation
+            if cloud_hint.rationale:
+                rationale = f"{rationale} Cloud understanding: {cloud_hint.rationale}"
 
         return IntentEnvelope(
             intent_type=intent_type,
             goal=text,
-            urgency=4 if any(token in lowered for token in ("urgent", "asap", "today", "紧急", "尽快", "今天")) else 3,
+            urgency=(
+                cloud_hint.urgency
+                if cloud_hint and cloud_hint.urgency is not None
+                else 4
+                if any(token in lowered for token in ("urgent", "asap", "today", "紧急", "尽快", "今天"))
+                else 3
+            ),
             risk_level=risk_level,
             needs_confirmation=needs_confirmation,
             related_context_ids=[],
@@ -387,18 +486,21 @@ class TaskEngine:
         TaskStatus.ARCHIVED: set(),
     }
 
-    def __init__(self, repo: TaskRepository, events: EventRepository) -> None:
+    def __init__(self, repo: TaskRepository, events: EventRepository, memory_engine: MemoryEngine | None = None) -> None:
         self.repo = repo
         self.events = events
+        self.memory_engine = memory_engine
 
     def create(self, payload: TaskCreatePayload) -> TaskRecord:
         task_data = payload.model_dump()
-        mode = payload.execution_mode or self.infer_execution_mode(payload.objective)
-        runtime_name = payload.runtime_name or self.infer_runtime_name(payload.objective, mode)
+        mode = payload.execution_mode or self._resolve_execution_mode(payload.objective)
+        runtime_name = payload.runtime_name or self._resolve_runtime_name(payload.objective, mode)
         task_data["execution_mode"] = mode
         task_data["runtime_name"] = runtime_name
         task_data["execution_plan"] = payload.execution_plan or self.build_execution_plan(mode, runtime_name=runtime_name)
         task = TaskRecord(id=str(uuid4()), **task_data)
+        if not task.implementation_contract:
+            task.implementation_contract = self._build_implementation_contract(task)
         self.events.append("task.created", task.model_dump(mode="json"))
         return self.repo.create(task)
 
@@ -446,9 +548,11 @@ class TaskEngine:
             raise ValueError(f"Cannot plan task from terminal state {task.status.value}.")
 
         task.subtasks = self._generate_subtasks(task)
-        task.execution_mode = self.infer_execution_mode(task.objective)
-        task.runtime_name = self.infer_runtime_name(task.objective, task.execution_mode)
+        task.execution_mode = self._resolve_execution_mode(task.objective)
+        task.runtime_name = self._resolve_runtime_name(task.objective, task.execution_mode)
         task.execution_plan = self.build_execution_plan(task.execution_mode, runtime_name=task.runtime_name)
+        task.success_criteria = self._augment_success_criteria(task)
+        task.implementation_contract = self._build_implementation_contract(task)
         task.status = TaskStatus.PLANNED
         task.blocker_reason = None
         task.updated_at = utc_now()
@@ -494,15 +598,260 @@ class TaskEngine:
         return self.repo.update(task)
 
     @staticmethod
-    def _generate_subtasks(task: TaskRecord) -> list[str]:
-        base_steps = [
-            f"Clarify the outcome and constraints for: {task.objective}",
-            f"Execute the primary work required for: {task.objective}",
-            f"Verify the result against the success criteria for: {task.objective}",
-        ]
+    def _dedupe_ordered(items: list[str]) -> list[str]:
+        seen: set[str] = set()
+        ordered: list[str] = []
+        for item in items:
+            normalized = item.strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            ordered.append(normalized)
+        return ordered
+
+    def _generate_subtasks(self, task: TaskRecord) -> list[str]:
+        base_steps = []
+        if task.objective.startswith("Replan task:"):
+            source_task = self._source_task(task)
+            target_objective = source_task.objective if source_task else task.objective.removeprefix("Replan task:").strip()
+            base_steps.extend(
+                [
+                    f"Review the failed evidence and blocker history for: {target_objective}",
+                    f"Revise the execution path and checks for: {target_objective}",
+                    f"Validate that the revised plan closes the prior verification gap for: {target_objective}",
+                ]
+            )
+        else:
+            base_steps.extend(
+                [
+                    f"Clarify the outcome and constraints for: {task.objective}",
+                    f"Execute the primary work required for: {task.objective}",
+                    f"Verify the result against the success criteria for: {task.objective}",
+                ]
+            )
         if task.success_criteria:
             base_steps.insert(1, "Translate the success criteria into concrete checks.")
-        return base_steps
+        learning_steps = self._learning_subtasks(task)
+        source_steps = self._source_task_subtasks(task)
+        return self._dedupe_ordered([*base_steps, *source_steps, *learning_steps])
+
+    def _augment_success_criteria(self, task: TaskRecord) -> list[str]:
+        criteria = list(task.success_criteria)
+        if self._learning_subtasks(task) and "Relevant learned guidance is incorporated into the plan." not in criteria:
+            criteria.append("Relevant learned guidance is incorporated into the plan.")
+        if task.objective.startswith("Replan task:"):
+            replan_criterion = "The revised plan addresses the previously failed verification evidence."
+            if replan_criterion not in criteria:
+                criteria.append(replan_criterion)
+        return criteria
+
+    def _learning_subtasks(self, task: TaskRecord) -> list[str]:
+        if not self.memory_engine:
+            return []
+        runtime_name = task.runtime_name or task.execution_plan.runtime_name or ""
+        query = " ".join(part for part in [task.objective, runtime_name] if part).strip()
+        insights = self.memory_engine.recall_learning(query=query, limit=3).items
+        steps: list[str] = []
+        for insight in insights:
+            label = insight.title.lower()
+            if insight.category == "guardrail":
+                steps.append(f"Preserve learned guardrail during planning: {label}")
+            elif insight.category == "runtime":
+                steps.append(f"Apply learned runtime guidance before execution: {label}")
+            else:
+                steps.append(f"Incorporate learned {insight.category} guidance into the plan: {label}")
+        return steps
+
+    def _resolve_execution_mode(self, objective: str) -> ExecutionMode:
+        default_mode = self.infer_execution_mode(objective)
+        if not self.memory_engine:
+            return default_mode
+        insights = self.memory_engine.recall_learning(query=objective, limit=5).items
+        for insight in insights:
+            if insight.category != "execution_mode":
+                continue
+            for tag in insight.tags:
+                if not tag.startswith("context:"):
+                    continue
+                raw_mode = tag.split(":", 1)[1]
+                try:
+                    return ExecutionMode(raw_mode)
+                except ValueError:
+                    continue
+        return default_mode
+
+    def _resolve_runtime_name(self, objective: str, mode: ExecutionMode) -> str | None:
+        default_runtime_name = self.infer_runtime_name(objective, mode)
+        if not self.memory_engine or mode != ExecutionMode.FILE_ARTIFACT:
+            return default_runtime_name
+        insights = self.memory_engine.recall_learning(query=objective, limit=5).items
+        for insight in insights:
+            if insight.category != "runtime":
+                continue
+            for tag in insight.tags:
+                if not tag.startswith("context:"):
+                    continue
+                candidate = tag.split(":", 1)[1]
+                if candidate != "none":
+                    return candidate
+        return default_runtime_name
+
+    def _source_task(self, task: TaskRecord) -> TaskRecord | None:
+        for tag in task.tags:
+            if not tag.startswith("source_task:"):
+                continue
+            return self.repo.get(tag.split(":", 1)[1])
+        return None
+
+    def _source_task_subtasks(self, task: TaskRecord) -> list[str]:
+        source_task = self._source_task(task)
+        if not source_task:
+            return []
+        steps: list[str] = []
+        if source_task.blocker_reason:
+            steps.append(f"Account for blocker reason: {source_task.blocker_reason}")
+        if source_task.verification_notes:
+            steps.append(f"Review prior verification notes from source task {source_task.id}")
+        return steps
+
+    def _build_implementation_contract(self, task: TaskRecord) -> ImplementationTaskContract | None:
+        if task.execution_mode == ExecutionMode.MESSAGE_DRAFT:
+            return ImplementationTaskContract(
+                summary=task.objective,
+                deliverable_type="message_draft",
+                execution_scope="communication",
+                acceptance_criteria=task.success_criteria,
+                constraints=["Do not send without explicit confirmation."],
+                planned_subtasks=task.subtasks,
+                expected_outputs=["Drafted outbound message"],
+                output_requirements=[
+                    ImplementationTaskContract.OutputRequirement(
+                        key="message_draft",
+                        label="Drafted outbound message",
+                        source="message_verification",
+                    )
+                ],
+                repo_instructions=[],
+                preferred_runtime=task.runtime_name or task.execution_plan.runtime_name,
+            )
+        if task.execution_mode == ExecutionMode.CALENDAR_EVENT:
+            return ImplementationTaskContract(
+                summary=task.objective,
+                deliverable_type="calendar_event",
+                execution_scope="local_calendar",
+                acceptance_criteria=task.success_criteria,
+                constraints=task.verification_notes,
+                planned_subtasks=task.subtasks,
+                expected_outputs=["Calendar event scheduled"],
+                output_requirements=[
+                    ImplementationTaskContract.OutputRequirement(
+                        key="calendar_event",
+                        label="Calendar event scheduled",
+                        source="calendar_verification",
+                    )
+                ],
+                repo_instructions=[],
+                preferred_runtime=task.runtime_name or task.execution_plan.runtime_name,
+            )
+        if task.execution_mode == ExecutionMode.REMINDER:
+            return ImplementationTaskContract(
+                summary=task.objective,
+                deliverable_type="reminder",
+                execution_scope="local_reminders",
+                acceptance_criteria=task.success_criteria,
+                constraints=[],
+                planned_subtasks=task.subtasks,
+                expected_outputs=["Reminder created"],
+                output_requirements=[
+                    ImplementationTaskContract.OutputRequirement(
+                        key="reminder",
+                        label="Reminder created",
+                        source="reminder_verification",
+                    )
+                ],
+                repo_instructions=[],
+                preferred_runtime=task.runtime_name or task.execution_plan.runtime_name,
+            )
+        if task.execution_mode == ExecutionMode.MEMORY_CAPTURE:
+            return ImplementationTaskContract(
+                summary=task.objective,
+                deliverable_type="memory_record",
+                execution_scope="memory",
+                acceptance_criteria=task.success_criteria,
+                constraints=[],
+                planned_subtasks=task.subtasks,
+                expected_outputs=["Structured memory record created"],
+                output_requirements=[
+                    ImplementationTaskContract.OutputRequirement(
+                        key="memory_record",
+                        label="Structured memory record created",
+                        source="memory_verification",
+                    )
+                ],
+                repo_instructions=[],
+                preferred_runtime=task.runtime_name or task.execution_plan.runtime_name,
+            )
+        deliverable_type = "code_change" if self._looks_like_code_work(task.objective) else "document_artifact"
+        constraints = list(task.intelligence_trace.get("explicit_constraints", [])) if task.intelligence_trace else []
+        if task.execution_plan.confirmation_required:
+            constraints.append("Require confirmation before external side effects.")
+        repo_instructions = [
+            "Read the repository before editing.",
+            "Prefer minimal, reviewable changes tied to the acceptance criteria.",
+            "Return verification evidence with the implementation result.",
+        ]
+        if task.objective.startswith("Replan task:"):
+            repo_instructions.append("Use prior blocker and verification history to revise the implementation path.")
+        expected_outputs = ["Updated artifact or code changes", "Verification evidence"]
+        output_requirements = [
+            ImplementationTaskContract.OutputRequirement(
+                key="artifact_or_code_change",
+                label="Updated artifact or code changes",
+                source="artifact_or_diff",
+            ),
+            ImplementationTaskContract.OutputRequirement(
+                key="verification_evidence",
+                label="Verification evidence",
+                source="verification_evidence",
+                required=False,
+            ),
+        ]
+        if deliverable_type == "code_change":
+            expected_outputs = ["Modified files", "Commands or tests run", "Verification evidence"]
+            output_requirements = [
+                ImplementationTaskContract.OutputRequirement(
+                    key="changed_files",
+                    label="Modified files",
+                    source="runtime_changed_files",
+                ),
+                ImplementationTaskContract.OutputRequirement(
+                    key="commands_or_tests",
+                    label="Commands or tests run",
+                    source="runtime_commands_or_tests",
+                ),
+                ImplementationTaskContract.OutputRequirement(
+                    key="verification_evidence",
+                    label="Verification evidence",
+                    source="verification_evidence",
+                ),
+            ]
+        return ImplementationTaskContract(
+            summary=task.objective,
+            deliverable_type=deliverable_type,
+            execution_scope="repository" if deliverable_type == "code_change" else "workspace_artifact",
+            acceptance_criteria=task.success_criteria,
+            constraints=self._dedupe_ordered(constraints),
+            planned_subtasks=task.subtasks,
+            expected_outputs=expected_outputs,
+            output_requirements=output_requirements,
+            repo_instructions=repo_instructions,
+            preferred_runtime=task.runtime_name or task.execution_plan.runtime_name,
+        )
+
+    @staticmethod
+    def _looks_like_code_work(objective: str) -> bool:
+        lowered = objective.lower()
+        return any(token in lowered for token in ("code", "repo", "git", "refactor", "implement", "feature", "bug", "runtime", "api"))
 
     @staticmethod
     def _run_checks(task: TaskRecord, payload: TaskVerificationPayload) -> list[str]:
@@ -515,10 +864,18 @@ class TaskEngine:
 
     @staticmethod
     def _passes_verification(task: TaskRecord) -> bool:
+        lowered_notes = [note.lower().strip() for note in task.verification_notes]
+        if any(
+            note.startswith("missing ")
+            or note.startswith("pending evidence ")
+            or note == "runtime execution failed"
+            or note.startswith("runtime blocker:")
+            for note in lowered_notes
+        ):
+            return False
         if not task.success_criteria:
             return True
-        combined_notes = " ".join(task.verification_notes).lower()
-        return not any(token in combined_notes for token in ("missing", "failed", "pending"))
+        return True
 
     @staticmethod
     def infer_execution_mode(objective: str) -> ExecutionMode:

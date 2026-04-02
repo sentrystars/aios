@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 from typing import Any, Callable
 
-from ai_os.domain import RuntimeDescriptor, RuntimeInvocation, TaskRecord
+from ai_os.domain import RuntimeDescriptor, RuntimeImplementationResult, RuntimeInvocation, TaskRecord
 from ai_os.policy import LifecycleHook, PolicyRule
+from ai_os.verification import ContextualRequirementEvaluator
 
 
 class ClaudeCodeRuntime:
@@ -49,6 +51,7 @@ class ClaudeCodeRuntime:
             "runtime_root": str(self.runtime_root),
             "command_preview": self._command_preview(invocation),
             "prompt_preview": invocation.prompt,
+            "task_contract": invocation.task_contract,
         }
 
     def execute_task(self, task: TaskRecord) -> dict[str, Any]:
@@ -68,6 +71,9 @@ class ClaudeCodeRuntime:
             "",
             "## Prompt Preview",
             *prompt_lines,
+            "",
+            "## Task Contract",
+            *[f"- {key}: {value}" for key, value in invocation.task_contract.items()],
             "",
             "## Environment Hints",
             *[f"- {key}={value}" for key, value in invocation.environment_hints.items()],
@@ -94,6 +100,8 @@ class ClaudeCodeRuntime:
             "command_preview": self._command_preview(invocation),
             "prompt_preview": invocation.prompt,
             "invocation": invocation.model_dump(mode="json"),
+            "task_contract": invocation.task_contract,
+            "implementation_result": self._implementation_result(task, execution),
             **execution,
             "artifact_content": "\n".join(artifact_lines),
             "summary": (
@@ -117,6 +125,7 @@ class ClaudeCodeRuntime:
                 "CLAUDE_CODE_ROOT": str(self.runtime_root),
             },
             prompt=prompt,
+            task_contract=self._task_contract(task),
             invocation_mode="print_mode",
             notes=[
                 "Uses Claude Code print mode (`claude -p`) for non-interactive execution when available.",
@@ -137,6 +146,33 @@ class ClaudeCodeRuntime:
             )
         ]
 
+    def contributed_verification_evaluators(self) -> list[ContextualRequirementEvaluator]:
+        return [
+            ContextualRequirementEvaluator(
+                requirement_key="commands_or_tests",
+                evaluator=self._evaluate_commands_or_tests_for_code_runtime,
+                runtime_name=self.descriptor.name,
+                deliverable_type="code_change",
+            )
+        ]
+
+    @staticmethod
+    def _evaluate_commands_or_tests_for_code_runtime(
+        *,
+        requirement_label: str,
+        task: TaskRecord,
+        implementation_result: RuntimeImplementationResult,
+        human_evidence: list[str],
+        **_: Any,
+    ) -> tuple[bool, str]:
+        if implementation_result.tests_failed:
+            return (False, f"{requirement_label} ({len(implementation_result.tests_failed)} failed tests)")
+        test_count = len(implementation_result.tests_run) + len(implementation_result.tests_passed)
+        if test_count > 0:
+            return (True, f"{requirement_label} ({test_count} test signals)")
+        command_count = len(implementation_result.commands_run)
+        return (command_count > 0, f"{requirement_label} ({command_count} command signals)")
+
     @staticmethod
     def _task_lines(task: TaskRecord) -> list[str]:
         lines = [
@@ -144,6 +180,24 @@ class ClaudeCodeRuntime:
             f"Execution mode: {task.execution_mode.value}",
             f"Risk level: {task.risk_level.value}",
         ]
+        if task.implementation_contract:
+            lines.extend(
+                [
+                    "Implementation contract:",
+                    f"- Summary: {task.implementation_contract.summary}",
+                    f"- Deliverable type: {task.implementation_contract.deliverable_type}",
+                    f"- Scope: {task.implementation_contract.execution_scope}",
+                ]
+            )
+            if task.implementation_contract.acceptance_criteria:
+                lines.append("Acceptance criteria:")
+                lines.extend([f"- {item}" for item in task.implementation_contract.acceptance_criteria])
+            if task.implementation_contract.constraints:
+                lines.append("Constraints:")
+                lines.extend([f"- {item}" for item in task.implementation_contract.constraints])
+            if task.implementation_contract.repo_instructions:
+                lines.append("Repo instructions:")
+                lines.extend([f"- {item}" for item in task.implementation_contract.repo_instructions])
         if task.success_criteria:
             lines.append("Success criteria:")
             lines.extend([f"- {item}" for item in task.success_criteria])
@@ -151,6 +205,103 @@ class ClaudeCodeRuntime:
             lines.append("Planned subtasks:")
             lines.extend([f"- {item}" for item in task.subtasks])
         return lines
+
+    @staticmethod
+    def _task_contract(task: TaskRecord) -> dict[str, Any]:
+        if not task.implementation_contract:
+            return {}
+        return task.implementation_contract.model_dump(mode="json")
+
+    @staticmethod
+    def _implementation_result(task: TaskRecord, execution: dict[str, Any]) -> dict[str, Any]:
+        evidence = list(task.success_criteria)
+        if task.execution_plan.expected_evidence:
+            evidence.extend(task.execution_plan.expected_evidence)
+        tests_run = ClaudeCodeRuntime._collect_test_signals(task, execution)
+        changed_files = ClaudeCodeRuntime._collect_changed_files(execution)
+        failed = execution.get("execution_status") == "failed"
+        test_summary = ClaudeCodeRuntime._summarize_test_outcome(execution)
+        diff_summary = ClaudeCodeRuntime._summarize_diff(changed_files)
+        result = RuntimeImplementationResult(
+            status=str(execution.get("execution_status", "unknown")),
+            changed_files=changed_files,
+            commands_run=[execution.get("executed_command")] if execution.get("executed_command") else [],
+            tests_run=tests_run,
+            tests_passed=test_summary["passed"],
+            tests_failed=test_summary["failed"],
+            diff_summary=diff_summary,
+            verification_evidence=evidence,
+            blockers=[execution["stderr"]] if failed and execution.get("stderr") else [],
+            suggested_next_step=(
+                f"Replan task: {task.objective}" if failed else "Verify runtime output and update the task evidence."
+            ),
+        )
+        return result.model_dump(mode="json")
+
+    @staticmethod
+    def _collect_test_signals(task: TaskRecord, execution: dict[str, Any]) -> list[str]:
+        tests_run: list[str] = []
+        for item in task.subtasks:
+            lowered = item.lower()
+            if "test" in lowered or "verify" in lowered:
+                tests_run.append(item)
+        combined_output = "\n".join([execution.get("stdout", ""), execution.get("stderr", ""), execution.get("executed_command", "")])
+        for line in combined_output.splitlines():
+            lowered = line.lower().strip()
+            if not lowered:
+                continue
+            if any(token in lowered for token in ("pytest", "unittest", "npm test", "swift test", "cargo test", "go test", "test ")):
+                tests_run.append(line.strip())
+        return ClaudeCodeRuntime._dedupe(tests_run)
+
+    @staticmethod
+    def _collect_changed_files(execution: dict[str, Any]) -> list[str]:
+        explicit = execution.get("changed_files", [])
+        if isinstance(explicit, list) and explicit:
+            return ClaudeCodeRuntime._dedupe([str(item) for item in explicit if item])
+        combined_output = "\n".join([execution.get("stdout", ""), execution.get("stderr", "")])
+        pattern = re.compile(r"(?<!\w)([A-Za-z0-9_./-]+\.(?:py|ts|tsx|js|jsx|swift|md|json|toml|yaml|yml|sh|txt))(?!\w)")
+        candidates = pattern.findall(combined_output)
+        return ClaudeCodeRuntime._dedupe(candidates)
+
+    @staticmethod
+    def _summarize_test_outcome(execution: dict[str, Any]) -> dict[str, list[str]]:
+        combined_output = "\n".join([execution.get("stdout", ""), execution.get("stderr", "")])
+        passed: list[str] = []
+        failed: list[str] = []
+        for line in combined_output.splitlines():
+            lowered = line.lower().strip()
+            if not lowered:
+                continue
+            if any(token in lowered for token in ("passed", "ok", "all tests passed")) and "test" in lowered:
+                passed.append(line.strip())
+            if any(token in lowered for token in ("failed", "error", "traceback")) and "test" in lowered:
+                failed.append(line.strip())
+        return {
+            "passed": ClaudeCodeRuntime._dedupe(passed),
+            "failed": ClaudeCodeRuntime._dedupe(failed),
+        }
+
+    @staticmethod
+    def _summarize_diff(changed_files: list[str]) -> str:
+        if not changed_files:
+            return "No changed files detected."
+        preview = ", ".join(changed_files[:3])
+        if len(changed_files) > 3:
+            preview += f", +{len(changed_files) - 3} more"
+        return f"{len(changed_files)} changed files: {preview}"
+
+    @staticmethod
+    def _dedupe(items: list[str]) -> list[str]:
+        seen: set[str] = set()
+        ordered: list[str] = []
+        for item in items:
+            normalized = item.strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            ordered.append(normalized)
+        return ordered
 
     @staticmethod
     def _command_preview(invocation: RuntimeInvocation) -> str:
@@ -192,6 +343,7 @@ class ClaudeCodeRuntime:
             timeout=300,
             check=False,
         )
+        changed_files = self._git_changed_files(invocation.working_directory)
         return {
             "execution_status": "completed" if completed.returncode == 0 else "failed",
             "exit_code": completed.returncode,
@@ -199,4 +351,22 @@ class ClaudeCodeRuntime:
             "stderr": completed.stderr.strip(),
             "executed_command": self._command_preview(invocation),
             "live_execution": True,
+            "changed_files": changed_files,
         }
+
+    @staticmethod
+    def _git_changed_files(working_directory: str) -> list[str]:
+        try:
+            completed = subprocess.run(
+                ["git", "diff", "--name-only"],
+                cwd=working_directory,
+                text=True,
+                capture_output=True,
+                timeout=10,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return []
+        if completed.returncode != 0:
+            return []
+        return ClaudeCodeRuntime._dedupe([line.strip() for line in completed.stdout.splitlines() if line.strip()])

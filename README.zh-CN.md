@@ -1,8 +1,8 @@
-# AI OS
+# AIOS
 
 [English Version](./README.md)
 
-AI OS 是一个面向个人工作的本地优先 AI 操作系统。
+AIOS 是一个面向个人工作的本地优先 AI 操作系统。
 
 当前仓库包含三部分核心内容：
 
@@ -13,7 +13,7 @@ AI OS 是一个面向个人工作的本地优先 AI 操作系统。
 当前产品目标是：
 
 - 用户用自然语言描述需求
-- AI OS 自动判断应该如何处理
+- AIOS 自动判断应该如何处理
 - 在安全前提下自动创建、规划、执行、验证任务
 - 只有在真正需要确认或策略复核时才停下来
 
@@ -46,7 +46,7 @@ AI OS 是一个面向个人工作的本地优先 AI 操作系统。
 
 ## Manifest 驱动装配
 
-AI OS 现在支持声明式发现：
+AIOS 现在支持声明式发现：
 
 - runtimes
 - capabilities
@@ -66,7 +66,7 @@ AI OS 现在支持声明式发现：
 
 ## Runtime 体系
 
-`claude-code` 在 AI OS 中被定位为 runtime，而不是内核本身。
+`claude-code` 在 AIOS 中被定位为 runtime，而不是内核本身。
 
 当前 runtime 层已经支持：
 
@@ -169,6 +169,15 @@ curl -s http://127.0.0.1:8787/healthz
 ```json
 {"status":"ok"}
 ```
+
+可选启用 DeepSeek 云端意图理解：
+
+```bash
+export DEEPSEEK_API_KEY=your_key
+export DEEPSEEK_MODEL=deepseek-chat
+```
+
+配置后，AIOS 会用 DeepSeek 理解对话意图；如果 API 不可用，会自动回退到本地规则。
 
 ## 构建 macOS App
 

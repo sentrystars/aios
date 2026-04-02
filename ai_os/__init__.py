@@ -1,1 +1,1 @@
-"""AI OS MVP package."""
+"""AIOS MVP package."""

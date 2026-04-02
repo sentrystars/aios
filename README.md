@@ -1,8 +1,8 @@
-# AI OS
+# AIOS
 
 [中文说明](./README.zh-CN.md)
 
-AI OS is a local-first personal operating system for AI-driven work.
+AIOS is a local-first personal operating system for AI-driven work.
 
 This repository now contains:
 
@@ -14,7 +14,7 @@ This repository now contains:
 The current direction is:
 
 - users describe a goal in natural language
-- AI OS decides how to handle it
+- AIOS decides how to handle it
 - the system automatically creates, plans, executes, and verifies work when it is safe
 - the loop only stops when confirmation or policy review is genuinely required
 
@@ -49,7 +49,7 @@ It is split into these layers:
 
 ## Manifest-Driven Discovery
 
-AI OS now supports declaration-based discovery for:
+AIOS now supports declaration-based discovery for:
 
 - runtimes
 - capabilities
@@ -146,7 +146,7 @@ It also keeps developer inspection pages:
 - `Events`
 - `Self`
 
-The conversation page is designed so a user can send one request and let AI OS auto-run the workflow.
+The conversation page is designed so a user can send one request and let AIOS auto-run the workflow.
 
 Menu bar support is also included for:
 
@@ -174,6 +174,15 @@ Expected result:
 ```json
 {"status":"ok"}
 ```
+
+Optional cloud intent understanding with DeepSeek:
+
+```bash
+export DEEPSEEK_API_KEY=your_key
+export DEEPSEEK_MODEL=deepseek-chat
+```
+
+When configured, AIOS uses DeepSeek for dialogue intent understanding and falls back to local rules if the API is unavailable.
 
 ## Build The macOS App
 

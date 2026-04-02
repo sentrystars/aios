@@ -16,6 +16,7 @@ from ai_os.domain import (
     MemoryRecord,
     MemoryType,
     ReminderRecord,
+    RuntimeImplementationResult,
     SelfProfile,
     TaskConfirmationPayload,
     TaskReflectionPayload,
@@ -34,8 +35,10 @@ from ai_os.kernel import (
     SelfKernel,
     TaskEngine,
 )
+from ai_os.storage import EventRepository
 from ai_os.runtimes import RuntimeRegistry
 from ai_os.policy import PolicyDecision, PolicyEngine
+from ai_os.verification import ContractEvaluator
 
 
 class IntakeCoordinator:
@@ -46,25 +49,69 @@ class IntakeCoordinator:
         intent_engine: IntentEngine,
         cognition_engine: CognitionEngine,
         task_engine: TaskEngine,
+        event_repo: EventRepository | None = None,
     ) -> None:
         self.self_kernel = self_kernel
         self.goal_service = goal_service
         self.intent_engine = intent_engine
         self.cognition_engine = cognition_engine
         self.task_engine = task_engine
+        self.event_repo = event_repo
 
     def process(self, payload: InputPayload) -> IntakeResponse:
         profile = self.self_kernel.get()
         intent = self.intent_engine.evaluate(payload, profile)
         cognition = self.cognition_engine.analyze(intent, profile)
+        self._record_cloud_hint(payload.text, intent, cognition)
         task = self.task_engine.ensure_from_intent(intent, cognition)
         if task:
+            intelligence_trace = self._build_intelligence_trace(intent, cognition)
+            if intelligence_trace:
+                task.intelligence_trace = intelligence_trace
             goal_ids = self._infer_goal_links(intent.goal, profile)
             if goal_ids:
                 task.linked_goal_ids = goal_ids
+            if intelligence_trace or goal_ids:
                 task.updated_at = utc_now()
                 task = self.task_engine.repo.update(task)
         return IntakeResponse(intent=intent, cognition=cognition, task=task)
+
+    def _record_cloud_hint(self, text: str, intent, cognition) -> None:
+        if not self.event_repo:
+            return
+        cloud_hint = self.cognition_engine.last_cloud_hint or self.intent_engine.last_cloud_hint
+        if not cloud_hint:
+            return
+        self.event_repo.append(
+            "intake.cloud_hint_used",
+            {
+                "text": text,
+                "provider": cloud_hint.provider,
+                "model": cloud_hint.model,
+                "intent_type": intent.intent_type.value,
+                "execution_mode": cognition.suggested_execution_mode.value,
+                "runtime_name": cognition.suggested_execution_plan.runtime_name,
+                "suggested_task_tags": cognition.suggested_task_tags,
+                "rationale": cloud_hint.rationale,
+            },
+        )
+
+    def _build_intelligence_trace(self, intent, cognition) -> dict[str, object]:
+        cloud_hint = self.cognition_engine.last_cloud_hint or self.intent_engine.last_cloud_hint
+        if not cloud_hint:
+            return {}
+        return {
+            "provider": cloud_hint.provider,
+            "model": cloud_hint.model,
+            "rationale": cloud_hint.rationale,
+            "intent_type": intent.intent_type.value,
+            "execution_mode": cognition.suggested_execution_mode.value,
+            "runtime_name": cognition.suggested_execution_plan.runtime_name,
+            "explicit_constraints": cognition.understanding.explicit_constraints,
+            "inferred_constraints": cognition.understanding.inferred_constraints,
+            "stakeholders": cognition.understanding.stakeholders,
+            "suggested_task_tags": cognition.suggested_task_tags,
+        }
 
     def _infer_goal_links(self, goal_text: str, profile: SelfProfile) -> list[str]:
         goal_text_lower = goal_text.lower()
@@ -94,6 +141,21 @@ class DeliveryCoordinator:
         self.execution_runs = execution_run_service
         self.runtime_registry = runtime_registry
         self.policy_engine = policy_engine or PolicyEngine()
+        self.contract_evaluator = ContractEvaluator(
+            message_draft_evidence=self._message_draft_evidence,
+            calendar_evidence=self._calendar_evidence,
+            reminder_evidence=self._reminder_evidence,
+            memory_evidence=self._memory_evidence,
+        )
+        if self.runtime_registry:
+            for evaluator in self.runtime_registry.contributed_verification_evaluators():
+                self.contract_evaluator.register_contextual_evaluator(
+                    evaluator.requirement_key,
+                    evaluator.evaluator,
+                    runtime_name=evaluator.runtime_name,
+                    deliverable_type=evaluator.deliverable_type,
+                    execution_mode=evaluator.execution_mode,
+                )
 
     def execute_capability(self, payload: CapabilityExecutionPayload) -> CapabilityExecutionResult:
         return self.capability_bus.execute(payload)
@@ -105,6 +167,8 @@ class DeliveryCoordinator:
             run_metadata["runtime_name"] = task.runtime_name
         elif task.execution_plan.runtime_name:
             run_metadata["runtime_name"] = task.execution_plan.runtime_name
+        if task.intelligence_trace:
+            run_metadata["intelligence_trace"] = task.intelligence_trace
         run = self.execution_runs.start(task.id, metadata=run_metadata)
         policy_decision = self.policy_engine.before_execute(task)
         self._record_policy_decision(task, run.id, policy_decision)
@@ -137,8 +201,21 @@ class DeliveryCoordinator:
             raise ValueError(f"Task {task_id} not found.")
         checks = list(payload.checks)
         checks.extend(self._collect_expected_evidence(task))
+        checks.extend(self._runtime_verification_evidence(task_id))
+        contract_notes, contract_assessment = self._implementation_contract_evidence(
+            task_id,
+            task,
+            supplied_checks=payload.checks,
+            verifier_notes=payload.verifier_notes,
+        )
+        checks.extend(contract_notes)
         enriched_payload = TaskVerificationPayload(checks=checks, verifier_notes=payload.verifier_notes)
         verified = self.task_engine.verify(task_id, enriched_payload)
+        verification_summary = ContractEvaluator.verification_summary(contract_assessment)
+        if verified.status == TaskStatus.BLOCKED and verification_summary["unmet_contract_outputs"]:
+            unmet = ", ".join(verification_summary["unmet_contract_outputs"])
+            verified.blocker_reason = f"Verification missing contract outputs: {unmet}"
+            verified = self.task_engine.repo.update(verified)
         if run := self.execution_runs.latest_for_task(task_id):
             self.relations.link(
                 "execution_run",
@@ -149,7 +226,15 @@ class DeliveryCoordinator:
                 metadata={"status": verified.status.value},
             )
             if verified.status in {TaskStatus.DONE, TaskStatus.BLOCKED}:
-                self.execution_runs.complete(run.id, verified.status.value, metadata={"task_status": verified.status.value})
+                self.execution_runs.complete(
+                    run.id,
+                    verified.status.value,
+                    metadata={
+                        "task_status": verified.status.value,
+                        "verification_summary": verification_summary,
+                        "verification_blocker_reason": verified.blocker_reason,
+                    },
+                )
         return verified
 
     def confirm_task(self, task_id: str, payload: TaskConfirmationPayload) -> TaskRecord:
@@ -268,6 +353,8 @@ class DeliveryCoordinator:
                 {
                     "runtime_summary": runtime_execution.get("summary", ""),
                     "runtime_command_preview": runtime_execution.get("command_preview", ""),
+                    "runtime_task_contract": runtime_execution.get("task_contract", {}),
+                    "runtime_implementation_result": runtime_execution.get("implementation_result", {}),
                     "runtime_execution_status": runtime_execution.get("execution_status", ""),
                     "runtime_exit_code": runtime_execution.get("exit_code"),
                     "runtime_live_execution": runtime_execution.get("live_execution", False),
@@ -548,6 +635,61 @@ class DeliveryCoordinator:
             else:
                 evidence_notes.append(f"Unverified expected evidence: {evidence}")
         return evidence_notes
+
+    def _runtime_verification_evidence(self, task_id: str) -> list[str]:
+        implementation_result = self._runtime_implementation_result(task_id)
+        if not implementation_result:
+            return []
+        notes: list[str] = []
+        for item in implementation_result.verification_evidence:
+            if item:
+                notes.append(f"Runtime evidence: {item}")
+        for item in implementation_result.changed_files:
+            if item:
+                notes.append(f"Runtime changed file: {item}")
+        for item in implementation_result.tests_run:
+            if item:
+                notes.append(f"Runtime test run: {item}")
+        for blocker in implementation_result.blockers:
+            if blocker:
+                notes.append(f"Runtime blocker: {blocker}")
+        if implementation_result.status == "failed":
+            notes.append("Runtime execution failed")
+        elif implementation_result.status == "completed":
+            notes.append("Runtime execution completed")
+        return notes
+
+    def _implementation_contract_evidence(
+        self,
+        task_id: str,
+        task: TaskRecord,
+        *,
+        supplied_checks: list[str],
+        verifier_notes: str | None,
+    ) -> tuple[list[str], list[dict[str, object]]]:
+        contract = task.implementation_contract
+        if not contract:
+            return [], []
+        implementation_result = self._runtime_implementation_result(task_id) or RuntimeImplementationResult(status="unknown")
+        human_evidence = [item for item in supplied_checks if isinstance(item, str) and item]
+        if verifier_notes:
+            human_evidence.append(verifier_notes)
+        return self.contract_evaluator.evaluate(
+            task=task,
+            contract=contract,
+            implementation_result=implementation_result,
+            human_evidence=human_evidence,
+        )
+
+    def _runtime_implementation_result(self, task_id: str) -> RuntimeImplementationResult | None:
+        run = self.execution_runs.latest_for_task(task_id)
+        if not run:
+            return None
+        payload = run.metadata.get("runtime_implementation_result", {})
+        if not isinstance(payload, dict) or not payload:
+            return None
+        return RuntimeImplementationResult.model_validate(payload)
+
 
     def _artifact_evidence(self, task: TaskRecord) -> list[str]:
         notes: list[str] = []

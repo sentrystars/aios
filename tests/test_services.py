@@ -1,9 +1,12 @@
 from pathlib import Path
 from datetime import datetime, timedelta
 import json
+import os
 from tempfile import TemporaryDirectory
 import unittest
 
+from ai_os.cloud_intelligence import CloudIntentHint
+from ai_os.env_loader import load_project_env
 from ai_os.domain import (
     CandidateAcceptancePayload,
     CandidateAutoAcceptPayload,
@@ -19,6 +22,7 @@ from ai_os.domain import (
     MemoryCreatePayload,
     MemoryType,
     RiskLevel,
+    RuntimeImplementationResult,
     TaskAdvancePayload,
     TaskConfirmationPayload,
     TaskCreatePayload,
@@ -28,8 +32,10 @@ from ai_os.domain import (
     utc_now,
 )
 from ai_os.services import CandidateTaskService, DeliveryCoordinator, EventQueryService, IntakeCoordinator, build_container
+from ai_os.kernel import CognitionEngine, IntentEngine
 from ai_os.policy import LifecycleHook, PolicyContext, PolicyRule
 from ai_os.runtimes import ClaudeCodeRuntime
+from ai_os.verification import ContractEvaluator
 
 
 class KernelServicesTest(unittest.TestCase):
@@ -42,6 +48,7 @@ class KernelServicesTest(unittest.TestCase):
             intent_engine=self.container.intent_engine,
             cognition_engine=self.container.cognition_engine,
             task_engine=self.container.task_engine,
+            event_repo=self.container.event_repo,
         )
         self.delivery = DeliveryCoordinator(
             task_engine=self.container.task_engine,
@@ -65,6 +72,13 @@ class KernelServicesTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.tempdir.cleanup()
 
+    class FakeConversationIntelligence:
+        def __init__(self, hint: CloudIntentHint) -> None:
+            self.hint = hint
+
+        def analyze(self, text: str, profile) -> CloudIntentHint:
+            return self.hint
+
     def test_intent_engine_classifies_question(self) -> None:
         envelope = self.container.intent_engine.evaluate(InputPayload(text="How should I plan this?"), self.container.self_kernel.get())
         self.assertEqual(envelope.intent_type.value, "question")
@@ -76,6 +90,90 @@ class KernelServicesTest(unittest.TestCase):
         records = self.container.memory_engine.list()
         self.assertEqual(len(records), 1)
         self.assertEqual(records[0].layer.value, "semantic")
+
+    def test_contract_evaluator_allows_custom_requirement_override(self) -> None:
+        evaluator = ContractEvaluator(
+            message_draft_evidence=self.delivery._message_draft_evidence,
+            calendar_evidence=self.delivery._calendar_evidence,
+            reminder_evidence=self.delivery._reminder_evidence,
+            memory_evidence=self.delivery._memory_evidence,
+        )
+        evaluator.register_evaluator(
+            "custom_signal",
+            lambda **kwargs: (True, f"{kwargs['requirement_label']} (custom)"),
+        )
+        task = self.container.task_engine.create(TaskCreatePayload(objective="Draft custom evaluation task"))
+        contract = self.container.task_engine.plan(task.id).implementation_contract
+        contract.output_requirements = [
+            contract.OutputRequirement(
+                key="custom_signal",
+                label="Custom Signal",
+                source="custom_policy",
+            )
+        ]
+
+        notes, assessment = evaluator.evaluate(
+            task=self.container.task_engine.repo.get(task.id),
+            contract=contract,
+            implementation_result=RuntimeImplementationResult(status="completed"),
+            human_evidence=[],
+        )
+
+        self.assertEqual(notes[0], "Contract output satisfied: Custom Signal (custom)")
+        self.assertEqual(assessment[0]["key"], "custom_signal")
+
+    def test_contract_evaluator_prefers_contextual_requirement_override(self) -> None:
+        evaluator = ContractEvaluator(
+            message_draft_evidence=self.delivery._message_draft_evidence,
+            calendar_evidence=self.delivery._calendar_evidence,
+            reminder_evidence=self.delivery._reminder_evidence,
+            memory_evidence=self.delivery._memory_evidence,
+        )
+        evaluator.register_contextual_evaluator(
+            "changed_files",
+            lambda **kwargs: (True, f"{kwargs['requirement_label']} (claude-code contextual)"),
+            runtime_name="claude-code",
+            deliverable_type="code_change",
+        )
+        task = self.container.task_engine.create(
+            TaskCreatePayload(objective="Implement contextual evaluator path", runtime_name="claude-code")
+        )
+        planned = self.container.task_engine.plan(task.id)
+
+        notes, assessment = evaluator.evaluate(
+            task=self.container.task_engine.repo.get(task.id),
+            contract=planned.implementation_contract,
+            implementation_result=RuntimeImplementationResult(status="completed"),
+            human_evidence=[],
+        )
+
+        self.assertTrue(any(note == "Contract output satisfied: Modified files (claude-code contextual)" for note in notes))
+        changed_files_assessment = next(item for item in assessment if item["key"] == "changed_files")
+        self.assertEqual(changed_files_assessment["detail"], "Modified files (claude-code contextual)")
+
+    def test_project_env_loader_reads_dotenv_file_without_overriding_existing_values(self) -> None:
+        env_path = Path(self.tempdir.name) / ".env.local"
+        env_path.write_text(
+            "DEEPSEEK_API_KEY=test_key\nDEEPSEEK_MODEL=deepseek-chat\n",
+            encoding="utf-8",
+        )
+        previous_key = os.environ.get("DEEPSEEK_API_KEY")
+        previous_model = os.environ.get("DEEPSEEK_MODEL")
+        try:
+            os.environ.pop("DEEPSEEK_API_KEY", None)
+            os.environ["DEEPSEEK_MODEL"] = "existing-model"
+            load_project_env(env_path)
+            self.assertEqual(os.environ.get("DEEPSEEK_API_KEY"), "test_key")
+            self.assertEqual(os.environ.get("DEEPSEEK_MODEL"), "existing-model")
+        finally:
+            if previous_key is None:
+                os.environ.pop("DEEPSEEK_API_KEY", None)
+            else:
+                os.environ["DEEPSEEK_API_KEY"] = previous_key
+            if previous_model is None:
+                os.environ.pop("DEEPSEEK_MODEL", None)
+            else:
+                os.environ["DEEPSEEK_MODEL"] = previous_model
 
     def test_self_update_emits_event_and_timeline(self) -> None:
         profile = self.container.self_kernel.get()
@@ -104,6 +202,49 @@ class KernelServicesTest(unittest.TestCase):
         self.assertEqual(planned.execution_mode, ExecutionMode.FILE_ARTIFACT)
         self.assertEqual(planned.execution_plan.steps[0].capability_name, "local_files")
         self.assertGreaterEqual(len(planned.subtasks), 3)
+
+    def test_task_plan_incorporates_recalled_learning(self) -> None:
+        completed = self.container.task_engine.create(TaskCreatePayload(objective="Prepare repo refactor plan"))
+        self.container.task_engine.plan(completed.id)
+        self.delivery.execute_task(completed.id)
+        self.delivery.verify_task(completed.id, TaskVerificationPayload())
+        self.delivery.reflect_task(
+            completed.id,
+            TaskReflectionPayload(
+                summary="Claude Code worked well for repository-heavy work.",
+                lessons=["runtime:claude-code:repo_work"],
+            ),
+        )
+
+        task = self.container.task_engine.create(TaskCreatePayload(objective="Implement repo runtime cleanup"))
+        planned = self.container.task_engine.plan(task.id)
+
+        self.assertTrue(any("Apply learned runtime guidance" in step for step in planned.subtasks))
+        self.assertIn("Relevant learned guidance is incorporated into the plan.", planned.success_criteria)
+
+    def test_replan_task_plan_uses_source_task_failure_context(self) -> None:
+        source = self.container.task_engine.create(
+            TaskCreatePayload(objective="Draft release checklist", success_criteria=["Checklist is complete"])
+        )
+        self.container.task_engine.plan(source.id)
+        self.delivery.execute_task(source.id)
+        blocked = self.delivery.verify_task(
+            source.id,
+            TaskVerificationPayload(checks=["missing evidence for final checklist"]),
+        )
+
+        replan = self.container.task_engine.create(
+            TaskCreatePayload(
+                objective=f"Replan task: {source.objective}",
+                tags=[f"source_task:{source.id}", "task:replan"],
+            )
+        )
+        planned = self.container.task_engine.plan(replan.id)
+
+        self.assertEqual(blocked.status, TaskStatus.BLOCKED)
+        self.assertTrue(any("failed evidence" in step.lower() for step in planned.subtasks))
+        self.assertTrue(any("verification notes" in step.lower() for step in planned.subtasks))
+        self.assertIn("The revised plan addresses the previously failed verification evidence.", planned.success_criteria)
 
     def test_intake_creates_task_for_action_request(self) -> None:
         response = self.intake.process(InputPayload(text="Draft the first AI OS milestone plan"))
@@ -158,6 +299,147 @@ class KernelServicesTest(unittest.TestCase):
         self.assertEqual(response.cognition.suggested_execution_plan.steps[0].capability_name, "calendar")
         self.assertIsNotNone(response.task)
         self.assertEqual(response.task.execution_mode, ExecutionMode.CALENDAR_EVENT)
+
+    def test_intake_uses_learned_execution_mode_preference(self) -> None:
+        completed = self.container.task_engine.create(TaskCreatePayload(objective="Capture deep work scheduling preference"))
+        self.container.task_engine.plan(completed.id)
+        self.delivery.execute_task(completed.id)
+        self.delivery.verify_task(completed.id, TaskVerificationPayload())
+        self.delivery.reflect_task(
+            completed.id,
+            TaskReflectionPayload(
+                summary="Deep work requests should be turned into calendar blocks.",
+                lessons=["execution_mode:calendar_event:deep_work"],
+            ),
+        )
+
+        response = self.intake.process(InputPayload(text="Set up deep work for the AI OS architecture"))
+
+        self.assertIsNotNone(response.task)
+        self.assertEqual(response.cognition.suggested_execution_mode, ExecutionMode.CALENDAR_EVENT)
+        self.assertEqual(response.task.execution_mode, ExecutionMode.CALENDAR_EVENT)
+
+    def test_intake_uses_deepseek_hint_for_intent_and_execution(self) -> None:
+        hint = CloudIntentHint(
+            intent_type=IntentType.ROUTINE,
+            urgency=5,
+            execution_mode=ExecutionMode.CALENDAR_EVENT,
+            explicit_constraints=["Time-bound: this afternoon"],
+            inferred_constraints=["Prefer a focused work block"],
+            stakeholders=["self:architecture"],
+            time_horizon="today",
+            success_shape="A concrete focus block exists on the calendar.",
+            rationale="The request is best fulfilled as a scheduled focus block.",
+            suggested_task_tags=["intelligence:deepseek"],
+        )
+        intake = IntakeCoordinator(
+            self_kernel=self.container.self_kernel,
+            goal_service=self.container.goal_service,
+            intent_engine=IntentEngine(
+                self.container.intent_engine.governance,
+                conversation_intelligence=self.FakeConversationIntelligence(hint),
+            ),
+            cognition_engine=CognitionEngine(
+                memory_engine=self.container.memory_engine,
+                conversation_intelligence=self.FakeConversationIntelligence(hint),
+            ),
+            task_engine=self.container.task_engine,
+            event_repo=self.container.event_repo,
+        )
+
+        response = intake.process(InputPayload(text="安排今天下午的架构深度工作"))
+
+        self.assertEqual(response.intent.intent_type, IntentType.ROUTINE)
+        self.assertEqual(response.intent.urgency, 5)
+        self.assertEqual(response.cognition.suggested_execution_mode, ExecutionMode.CALENDAR_EVENT)
+        self.assertIn("Time-bound: this afternoon", response.cognition.understanding.explicit_constraints)
+        self.assertIn("intelligence:cloud", response.task.tags)
+        self.assertIn("intelligence:deepseek", response.task.tags)
+        self.assertEqual(response.task.intelligence_trace["provider"], "deepseek")
+        self.assertEqual(response.task.intelligence_trace["execution_mode"], ExecutionMode.CALENDAR_EVENT.value)
+        self.assertIn("Prefer a focused work block", response.task.intelligence_trace["inferred_constraints"])
+
+        recent_events = self.events.list_recent(limit=20)
+        self.assertTrue(any(event.event_type == "intake.cloud_hint_used" for event in recent_events))
+
+    def test_task_plan_uses_learned_runtime_preference(self) -> None:
+        completed = self.container.task_engine.create(TaskCreatePayload(objective="Prepare repo refactor plan"))
+        self.container.task_engine.plan(completed.id)
+        self.delivery.execute_task(completed.id)
+        self.delivery.verify_task(completed.id, TaskVerificationPayload())
+        self.delivery.reflect_task(
+            completed.id,
+            TaskReflectionPayload(
+                summary="Claude Code worked well for repository-heavy work.",
+                lessons=["runtime:claude-code:integration_cleanup"],
+            ),
+        )
+
+        task = self.container.task_engine.create(TaskCreatePayload(objective="Prepare integration cleanup handoff"))
+        planned = self.container.task_engine.plan(task.id)
+
+        self.assertEqual(planned.runtime_name, "claude-code")
+        self.assertEqual(planned.execution_plan.runtime_name, "claude-code")
+
+    def test_intake_uses_deepseek_runtime_hint(self) -> None:
+        hint = CloudIntentHint(
+            intent_type=IntentType.TASK,
+            execution_mode=ExecutionMode.FILE_ARTIFACT,
+            runtime_name="claude-code",
+            rationale="This is repository implementation work.",
+        )
+        intake = IntakeCoordinator(
+            self_kernel=self.container.self_kernel,
+            goal_service=self.container.goal_service,
+            intent_engine=IntentEngine(
+                self.container.intent_engine.governance,
+                conversation_intelligence=self.FakeConversationIntelligence(hint),
+            ),
+            cognition_engine=CognitionEngine(
+                memory_engine=self.container.memory_engine,
+                conversation_intelligence=self.FakeConversationIntelligence(hint),
+            ),
+            task_engine=self.container.task_engine,
+            event_repo=self.container.event_repo,
+        )
+
+        response = intake.process(InputPayload(text="整理这个仓库的集成清理方案"))
+
+        self.assertIsNotNone(response.task)
+        self.assertEqual(response.cognition.suggested_execution_plan.runtime_name, "claude-code")
+        self.assertEqual(response.task.runtime_name, "claude-code")
+
+    def test_execution_run_carries_task_intelligence_trace(self) -> None:
+        hint = CloudIntentHint(
+            intent_type=IntentType.TASK,
+            execution_mode=ExecutionMode.FILE_ARTIFACT,
+            runtime_name="claude-code",
+            rationale="This is repository implementation work.",
+        )
+        intake = IntakeCoordinator(
+            self_kernel=self.container.self_kernel,
+            goal_service=self.container.goal_service,
+            intent_engine=IntentEngine(
+                self.container.intent_engine.governance,
+                conversation_intelligence=self.FakeConversationIntelligence(hint),
+            ),
+            cognition_engine=CognitionEngine(
+                memory_engine=self.container.memory_engine,
+                conversation_intelligence=self.FakeConversationIntelligence(hint),
+            ),
+            task_engine=self.container.task_engine,
+            event_repo=self.container.event_repo,
+        )
+
+        response = intake.process(InputPayload(text="整理这个仓库的集成清理方案"))
+        self.assertIsNotNone(response.task)
+        planned = self.container.task_engine.plan(response.task.id)
+        executed = self.delivery.execute_task(planned.id)
+        run = self.container.execution_run_service.latest_for_task(executed.id)
+
+        self.assertIsNotNone(run)
+        self.assertEqual(run.metadata["intelligence_trace"]["provider"], "deepseek")
+        self.assertEqual(run.metadata["intelligence_trace"]["runtime_name"], "claude-code")
 
     def test_candidate_service_list_alias_matches_discover(self) -> None:
         self.container.task_engine.create(TaskCreatePayload(objective="Plan the next release"))
@@ -271,6 +553,29 @@ class KernelServicesTest(unittest.TestCase):
         self.assertTrue(recall.items)
         self.assertEqual(recall.items[0].title, "Roadmap preference")
 
+    def test_reflection_creates_structured_learning_records(self) -> None:
+        task = self.container.task_engine.create(TaskCreatePayload(objective="Prepare repo refactor plan"))
+        self.container.task_engine.plan(task.id)
+        self.delivery.execute_task(task.id)
+        self.delivery.verify_task(task.id, TaskVerificationPayload())
+        self.delivery.reflect_task(
+            task.id,
+            TaskReflectionPayload(
+                summary="Claude Code worked well for repository-heavy work.",
+                lessons=[
+                    "runtime:claude-code:repo_work",
+                    "strategy:split_large_tasks",
+                ],
+            ),
+        )
+
+        learning = self.container.memory_engine.recall_learning("claude-code repo_work", limit=10)
+
+        self.assertTrue(learning.items)
+        self.assertTrue(any(item.category == "runtime" for item in learning.items))
+        self.assertTrue(any("runtime:claude-code" in item.tags for item in learning.items))
+        self.assertTrue(any("context:repo_work" in item.tags for item in learning.items))
+
     def test_goal_service_creates_and_updates_goal(self) -> None:
         goal = self.container.goal_service.create(
             GoalCreatePayload(
@@ -346,6 +651,10 @@ class KernelServicesTest(unittest.TestCase):
         rules = self.container.runtime_registry.contributed_policy_rules()
         self.assertTrue(any(rule.name == "claude_code_runtime_tracks_code_execution" for rule in rules))
 
+    def test_runtime_registry_contributes_verification_evaluators(self) -> None:
+        evaluators = self.container.runtime_registry.contributed_verification_evaluators()
+        self.assertTrue(any(item.requirement_key == "commands_or_tests" and item.runtime_name == "claude-code" for item in evaluators))
+
     def test_runtime_registry_prepares_task_preview(self) -> None:
         task = self.container.task_engine.create(TaskCreatePayload(objective="Refactor AI OS services"))
         self.container.task_engine.plan(task.id)
@@ -356,6 +665,7 @@ class KernelServicesTest(unittest.TestCase):
         self.assertEqual(preview["runtime"], "claude-code")
         self.assertEqual(preview["command_preview"], "claude -p")
         self.assertIn("Objective:", preview["prompt_preview"])
+        self.assertEqual(preview["task_contract"]["preferred_runtime"], "claude-code")
 
     def test_runtime_registry_executes_task_bundle(self) -> None:
         task = self.container.task_engine.create(TaskCreatePayload(objective="Implement AI OS runtime adapter"))
@@ -366,6 +676,8 @@ class KernelServicesTest(unittest.TestCase):
         self.assertIn("Runtime Execution: claude-code", result["artifact_content"])
         self.assertIn("Command Preview: claude -p", result["artifact_content"])
         self.assertIn(result["execution_status"], {"completed", "failed", "not_installed"})
+        self.assertEqual(result["task_contract"]["preferred_runtime"], "claude-code")
+        self.assertIn("verification_evidence", result["implementation_result"])
 
     def test_runtime_registry_builds_invocation(self) -> None:
         task = self.container.task_engine.create(TaskCreatePayload(objective="Implement AI OS runtime adapter"))
@@ -377,6 +689,21 @@ class KernelServicesTest(unittest.TestCase):
         self.assertEqual(invocation.launch_args, ["-p"])
         self.assertEqual(invocation.invocation_mode, "print_mode")
         self.assertEqual(invocation.environment_hints["AI_OS_TASK_ID"], planned.id)
+        self.assertEqual(invocation.task_contract["deliverable_type"], "code_change")
+
+    def test_task_plan_generates_implementation_contract(self) -> None:
+        task = self.container.task_engine.create(TaskCreatePayload(objective="Implement API refactor for AI OS runtime"))
+        planned = self.container.task_engine.plan(task.id)
+
+        self.assertIsNotNone(planned.implementation_contract)
+        self.assertEqual(planned.implementation_contract.preferred_runtime, "claude-code")
+        self.assertEqual(planned.implementation_contract.deliverable_type, "code_change")
+        self.assertIn("Modified files", planned.implementation_contract.expected_outputs)
+        self.assertEqual(
+            [item.key for item in planned.implementation_contract.output_requirements],
+            ["changed_files", "commands_or_tests", "verification_evidence"],
+        )
+        self.assertTrue(planned.implementation_contract.repo_instructions)
 
     def test_claude_runtime_uses_injected_runner_for_live_execution(self) -> None:
         runtime = ClaudeCodeRuntime(
@@ -385,10 +712,11 @@ class KernelServicesTest(unittest.TestCase):
             command_runner=lambda invocation: {
                 "execution_status": "completed",
                 "exit_code": 0,
-                "stdout": "live output",
+                "stdout": "Updated ai_os/kernel_execution.py\npytest tests/test_services.py -q",
                 "stderr": "",
                 "executed_command": "claude -p",
                 "live_execution": True,
+                "changed_files": ["ai_os/kernel_execution.py", "tests/test_services.py"],
             },
             command_exists=lambda _: "/usr/local/bin/claude",
         )
@@ -398,7 +726,11 @@ class KernelServicesTest(unittest.TestCase):
         result = runtime.execute_task(planned)
         self.assertEqual(result["execution_status"], "completed")
         self.assertEqual(result["exit_code"], 0)
-        self.assertEqual(result["stdout"], "live output")
+        self.assertIn("ai_os/kernel_execution.py", result["implementation_result"]["changed_files"])
+        self.assertTrue(any("pytest" in item.lower() for item in result["implementation_result"]["tests_run"]))
+        self.assertIn("tests_passed", result["implementation_result"])
+        self.assertIn("tests_failed", result["implementation_result"])
+        self.assertIn("diff_summary", result["implementation_result"])
         self.assertTrue(result["live_execution"])
 
     def test_task_create_persists_explicit_runtime_name(self) -> None:
@@ -420,6 +752,8 @@ class KernelServicesTest(unittest.TestCase):
         run = self.container.execution_run_service.latest_for_task(task.id)
         self.assertEqual(run.metadata["runtime_name"], "claude-code")
         self.assertIn("runtime_invocation", run.metadata)
+        self.assertEqual(run.metadata["runtime_task_contract"]["preferred_runtime"], "claude-code")
+        self.assertIn("verification_evidence", run.metadata["runtime_implementation_result"])
         self.assertEqual(run.metadata["artifact_kind"], "file_artifact")
         self.assertIn("runtime_execution_status", run.metadata)
         self.assertIn("runtime_live_execution", run.metadata)
@@ -434,6 +768,211 @@ class KernelServicesTest(unittest.TestCase):
             )
         )
         self.assertIn("Runtime Execution: claude-code", artifact.output)
+
+    def test_verify_uses_runtime_implementation_result_evidence(self) -> None:
+        task = self.container.task_engine.create(
+            TaskCreatePayload(objective="Implement AI OS runtime adapter", success_criteria=["Implementation contract exists"])
+        )
+        self.container.task_engine.plan(task.id)
+        self.delivery.execute_task(task.id)
+        verified = self.delivery.verify_task(task.id, TaskVerificationPayload())
+
+        self.assertEqual(verified.status, TaskStatus.DONE)
+        self.assertTrue(any(note.startswith("Runtime evidence:") for note in verified.verification_notes))
+        self.assertTrue(any(note.startswith("Artifact exists:") for note in verified.verification_notes))
+        self.assertTrue(any(note.startswith("Contract output satisfied:") for note in verified.verification_notes))
+
+    def test_verify_requires_implementation_contract_outputs_for_code_work(self) -> None:
+        task = self.container.task_engine.create(
+            TaskCreatePayload(objective="Implement repository verification hardening", success_criteria=["Implementation is verified"])
+        )
+        self.container.task_engine.plan(task.id)
+        self.container.execution_run_service.start(
+            task.id,
+            metadata={
+                "runtime_implementation_result": {
+                    "status": "completed",
+                    "changed_files": [],
+                    "tests_run": [],
+                    "commands_run": [],
+                    "verification_evidence": [],
+                    "blockers": [],
+                }
+            },
+        )
+        self.container.task_engine.mark_executing(task.id)
+
+        verified = self.delivery.verify_task(task.id, TaskVerificationPayload())
+        run = self.container.execution_run_service.latest_for_task(task.id)
+
+        self.assertEqual(verified.status, TaskStatus.BLOCKED)
+        self.assertEqual(
+            verified.blocker_reason,
+            "Verification missing contract outputs: Modified files, Commands or tests run, Verification evidence",
+        )
+        self.assertTrue(any(note.startswith("Missing contract output: Modified files") for note in verified.verification_notes))
+        self.assertTrue(any(note.startswith("Missing contract output: Commands or tests run") for note in verified.verification_notes))
+        self.assertTrue(any(note.startswith("Missing contract output: Verification evidence") for note in verified.verification_notes))
+        self.assertIsNotNone(run)
+        self.assertEqual(
+            run.metadata["verification_summary"]["unmet_contract_outputs"],
+            ["Modified files", "Commands or tests run", "Verification evidence"],
+        )
+
+    def test_verify_passes_when_contract_outputs_are_present(self) -> None:
+        task = self.container.task_engine.create(
+            TaskCreatePayload(objective="Implement repository verification success path", success_criteria=["Implementation is verified"])
+        )
+        self.container.task_engine.plan(task.id)
+        artifact_path = Path(self.tempdir.name) / "verification-success.md"
+        artifact_path.write_text("verification success", encoding="utf-8")
+        planned = self.container.task_engine.repo.get(task.id)
+        planned.artifact_paths = [str(artifact_path)]
+        self.container.task_engine.repo.update(planned)
+        self.container.execution_run_service.start(
+            task.id,
+            metadata={
+                "runtime_implementation_result": {
+                    "status": "completed",
+                    "changed_files": ["ai_os/workflows.py"],
+                    "tests_run": ["pytest tests/test_services.py -q"],
+                    "commands_run": ["pytest tests/test_services.py -q"],
+                    "verification_evidence": ["All contract checks passed"],
+                    "blockers": [],
+                }
+            },
+        )
+        self.container.task_engine.mark_executing(task.id)
+
+        verified = self.delivery.verify_task(task.id, TaskVerificationPayload())
+
+        self.assertEqual(verified.status, TaskStatus.DONE)
+        self.assertTrue(any(note.startswith("Contract output satisfied: Modified files") for note in verified.verification_notes))
+        self.assertTrue(any(note.startswith("Contract output satisfied: Commands or tests run") for note in verified.verification_notes))
+        self.assertTrue(any(note.startswith("Contract output satisfied: Verification evidence") for note in verified.verification_notes))
+
+    def test_claude_code_contextual_verifier_blocks_failed_tests_even_with_commands(self) -> None:
+        task = self.container.task_engine.create(
+            TaskCreatePayload(objective="Implement claude-code contextual verification", runtime_name="claude-code")
+        )
+        self.container.task_engine.plan(task.id)
+        self.container.execution_run_service.start(
+            task.id,
+            metadata={
+                "runtime_implementation_result": {
+                    "status": "completed",
+                    "changed_files": ["ai_os/workflows.py"],
+                    "commands_run": ["pytest tests/test_services.py -q"],
+                    "tests_run": [],
+                    "tests_passed": [],
+                    "tests_failed": ["1 test failed"],
+                    "diff_summary": "1 changed file: ai_os/workflows.py",
+                    "verification_evidence": ["Runtime completed but tests failed"],
+                    "blockers": [],
+                }
+            },
+        )
+        self.container.task_engine.mark_executing(task.id)
+
+        verified = self.delivery.verify_task(task.id, TaskVerificationPayload())
+
+        self.assertEqual(verified.status, TaskStatus.BLOCKED)
+        self.assertTrue(any(note == "Missing contract output: Commands or tests run (1 failed tests)" for note in verified.verification_notes))
+
+    def test_verify_blocks_when_runtime_reports_failure(self) -> None:
+        runtime = ClaudeCodeRuntime(
+            workspace_root=Path(self.tempdir.name),
+            app_root=Path("/Users/liuxiaofeng/AI OS"),
+            command_runner=lambda invocation: {
+                "execution_status": "failed",
+                "exit_code": 1,
+                "stdout": "",
+                "stderr": "unit tests failed",
+                "executed_command": "claude -p",
+                "live_execution": True,
+            },
+            command_exists=lambda _: "/usr/local/bin/claude",
+        )
+        task = self.container.task_engine.create(
+            TaskCreatePayload(objective="Implement API refactor for AI OS runtime", success_criteria=["All checks pass"])
+        )
+        self.container.task_engine.plan(task.id)
+        result = runtime.execute_task(self.container.task_engine.repo.get(task.id))
+        run = self.container.execution_run_service.start(task.id, metadata={"runtime_implementation_result": result["implementation_result"]})
+        self.container.task_engine.mark_executing(task.id)
+        verified = self.delivery.verify_task(task.id, TaskVerificationPayload())
+
+        self.assertEqual(run.task_id, task.id)
+        self.assertEqual(verified.status, TaskStatus.BLOCKED)
+        self.assertTrue(any("Runtime execution failed" == note for note in verified.verification_notes))
+        self.assertTrue(any(note.startswith("Runtime blocker:") for note in verified.verification_notes))
+        self.assertEqual(result["implementation_result"]["suggested_next_step"], f"Replan task: {task.objective}")
+
+    def test_scheduler_uses_runtime_suggested_replan_step(self) -> None:
+        task = self.container.task_engine.create(
+            TaskCreatePayload(objective="Implement API refactor for AI OS runtime", success_criteria=["All checks pass"])
+        )
+        self.container.task_engine.plan(task.id)
+        self.container.task_engine.mark_executing(task.id)
+        self.container.execution_run_service.start(
+            task.id,
+            metadata={
+                "runtime_implementation_result": {
+                    "status": "failed",
+                    "suggested_next_step": f"Replan task: {task.objective}",
+                    "verification_evidence": [],
+                    "blockers": ["tests failed"],
+                }
+            },
+        )
+        blocked = self.container.task_engine.verify(
+            task.id,
+            TaskVerificationPayload(checks=["Runtime execution failed", "Runtime blocker: tests failed"]),
+        )
+        blocked.updated_at = utc_now() - timedelta(hours=3)
+        self.container.task_engine.repo.update(blocked)
+
+        result = self.container.scheduler_service.tick(SchedulerTickPayload(candidate_limit=20, stale_after_minutes=60))
+        tasks = self.container.task_engine.list()
+
+        self.assertEqual(result.blocked_followup_count, 1)
+        self.assertTrue(any(item.objective == f"Replan task: {task.objective}" for item in tasks))
+
+    def test_scheduler_replan_includes_unmet_contract_outputs(self) -> None:
+        task = self.container.task_engine.create(
+            TaskCreatePayload(objective="Implement precise verification replan path", success_criteria=["Implementation is verified"])
+        )
+        self.container.task_engine.plan(task.id)
+        self.container.execution_run_service.start(
+            task.id,
+            metadata={
+                "runtime_implementation_result": {
+                    "status": "completed",
+                    "changed_files": [],
+                    "tests_run": [],
+                    "commands_run": [],
+                    "verification_evidence": [],
+                    "blockers": [],
+                    "suggested_next_step": f"Replan task: {task.objective}",
+                }
+            },
+        )
+        self.container.task_engine.mark_executing(task.id)
+        blocked = self.delivery.verify_task(task.id, TaskVerificationPayload())
+        blocked.updated_at = utc_now() - timedelta(hours=3)
+        self.container.task_engine.repo.update(blocked)
+
+        self.container.scheduler_service.tick(SchedulerTickPayload(candidate_limit=20, stale_after_minutes=60))
+        tasks = self.container.task_engine.list()
+        replan = next(item for item in tasks if item.objective == f"Replan task: {task.objective}")
+
+        self.assertTrue(
+            any(
+                "Resolve unmet contract requirements: changed_files, commands_or_tests, verification_evidence."
+                == criterion
+                for criterion in replan.success_criteria
+            )
+        )
 
     def test_candidate_discovery_adds_goal_review_for_unlinked_goal(self) -> None:
         goal = self.container.goal_service.create(
@@ -1045,6 +1584,29 @@ class KernelServicesTest(unittest.TestCase):
         updated_captured = self.container.task_engine.repo.get(captured.id)
         self.assertEqual(updated_captured.status, TaskStatus.PLANNED)
 
+    def test_candidate_discovery_prioritizes_cloud_implementation_work(self) -> None:
+        implementation_task = self.container.task_engine.create(
+            TaskCreatePayload(
+                objective="Refactor repository runtime integration",
+                tags=["intelligence:cloud", "task:implementation"],
+                intelligence_trace={
+                    "provider": "deepseek",
+                    "runtime_name": "claude-code",
+                    "execution_mode": "file_artifact",
+                },
+                runtime_name="claude-code",
+            )
+        )
+        memory_task = self.container.task_engine.create(TaskCreatePayload(objective="Remember grocery list for tomorrow"))
+
+        plan_candidates = [candidate for candidate in self.candidates.discover(limit=20) if candidate.kind == "plan"]
+
+        self.assertGreaterEqual(len(plan_candidates), 2)
+        self.assertEqual(plan_candidates[0].source_task_id, implementation_task.id)
+        self.assertEqual(plan_candidates[0].priority, 5)
+        plain_candidate = next(candidate for candidate in plan_candidates if candidate.source_task_id == memory_task.id)
+        self.assertLess(plain_candidate.priority, plan_candidates[0].priority)
+
     def test_batch_auto_accept_emits_summary_event(self) -> None:
         blocked = self.container.task_engine.create(TaskCreatePayload(objective="Message Alice about summary batch status"))
         self.container.task_engine.plan(blocked.id)
@@ -1082,6 +1644,41 @@ class KernelServicesTest(unittest.TestCase):
         self.assertIn(task.id, result.auto_started_task_ids)
         self.assertIn(task.id, result.auto_verified_task_ids)
 
+    def test_scheduler_auto_start_prioritizes_autonomous_implementation_tasks(self) -> None:
+        implementation_task = self.container.task_engine.create(
+            TaskCreatePayload(
+                objective="Refactor scheduler implementation",
+                tags=["intelligence:cloud", "task:implementation"],
+                intelligence_trace={
+                    "provider": "deepseek",
+                    "runtime_name": "claude-code",
+                    "execution_mode": "file_artifact",
+                },
+                runtime_name="claude-code",
+            )
+        )
+        implementation_task = self.container.task_engine.plan(implementation_task.id)
+        memory_task = self.container.task_engine.create(TaskCreatePayload(objective="Remember ideas from today"))
+        memory_task = self.container.task_engine.plan(memory_task.id)
+
+        execution_order: list[str] = []
+        original_execute_task = self.container.scheduler_service.delivery.execute_task
+
+        def record_execute(task_id: str):
+            execution_order.append(task_id)
+            return original_execute_task(task_id)
+
+        self.container.scheduler_service.delivery.execute_task = record_execute
+        try:
+            result = self.container.scheduler_service.tick(SchedulerTickPayload(candidate_limit=20))
+        finally:
+            self.container.scheduler_service.delivery.execute_task = original_execute_task
+
+        self.assertGreaterEqual(len(execution_order), 2)
+        self.assertEqual(execution_order[0], implementation_task.id)
+        self.assertIn(implementation_task.id, result.auto_started_task_ids)
+        self.assertIn(memory_task.id, result.auto_started_task_ids)
+
     def test_scheduler_tick_emits_completion_event(self) -> None:
         blocked = self.container.task_engine.create(TaskCreatePayload(objective="Message Alice about scheduler summary status"))
         self.container.task_engine.plan(blocked.id)
@@ -1116,6 +1713,30 @@ class KernelServicesTest(unittest.TestCase):
         self.assertEqual(result.blocked_followup_count, 1)
         self.assertIn(task.id, result.blocked_followup_task_ids)
         self.assertTrue(any(item.objective == f"Resolve blocker: {task.objective}" for item in tasks))
+
+    def test_scheduler_tick_creates_replan_for_failed_verification_block(self) -> None:
+        task = self.container.task_engine.create(
+            TaskCreatePayload(objective="Draft release checklist", success_criteria=["Checklist is complete"])
+        )
+        self.container.task_engine.plan(task.id)
+        self.delivery.execute_task(task.id)
+        blocked = self.delivery.verify_task(
+            task.id,
+            TaskVerificationPayload(checks=["missing evidence for final checklist"]),
+        )
+        self.assertEqual(blocked.status, TaskStatus.BLOCKED)
+        blocked.updated_at = utc_now() - timedelta(hours=3)
+        self.container.task_engine.repo.update(blocked)
+
+        result = self.container.scheduler_service.tick(SchedulerTickPayload(candidate_limit=20, stale_after_minutes=60))
+        tasks = self.container.task_engine.list()
+        recent_events = self.events.list_recent(limit=20)
+
+        self.assertEqual(result.blocked_followup_count, 1)
+        self.assertIn(task.id, result.blocked_followup_task_ids)
+        self.assertTrue(any(item.objective == f"Replan task: {task.objective}" for item in tasks))
+        self.assertFalse(any(item.objective == f"Resolve blocker: {task.objective}" for item in tasks))
+        self.assertTrue(any(event.event_type == "scheduler.stalled_task.replan_created" for event in recent_events))
 
     def test_scheduler_tick_does_not_duplicate_stalled_blocked_followup(self) -> None:
         task = self.container.task_engine.create(TaskCreatePayload(objective="Message Alice about stalled duplicate"))

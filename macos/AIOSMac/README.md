@@ -1,6 +1,6 @@
 # AIOSMac
 
-Native macOS client for the existing AI OS FastAPI backend.
+Native macOS client for the existing AIOS FastAPI backend.
 
 ## Current scope
 

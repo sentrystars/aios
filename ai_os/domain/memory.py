@@ -13,6 +13,7 @@ class MemoryType(str, Enum):
     TASK = "task"
     KNOWLEDGE = "knowledge"
     REFLECTION = "reflection"
+    LEARNING = "learning"
 
 
 class MemoryLayer(str, Enum):
@@ -58,3 +59,18 @@ class MemoryRecallItem(BaseModel):
 class MemoryRecallResponse(BaseModel):
     query: str
     items: list[MemoryRecallItem] = Field(default_factory=list)
+
+
+class LearningInsight(BaseModel):
+    memory_id: str
+    title: str
+    category: str
+    score: float = Field(ge=0.0, le=1.0)
+    reason: str
+    confidence: float = Field(ge=0.0, le=1.0)
+    tags: list[str] = Field(default_factory=list)
+
+
+class LearningRecallResponse(BaseModel):
+    query: str
+    items: list[LearningInsight] = Field(default_factory=list)

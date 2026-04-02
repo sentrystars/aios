@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 
 from ai_os.bootstrap import build_container
+from ai_os.env_loader import load_project_env
 from ai_os.candidates import CandidateTaskService
 from ai_os.domain import (
     CandidateAcceptancePayload,
@@ -26,6 +27,7 @@ from ai_os.domain import (
     GoalRecord,
     GoalUpdatePayload,
     InputPayload,
+    LearningRecallResponse,
     MemoryCreatePayload,
     MemoryRecallResponse,
     PluginDescriptor,
@@ -48,7 +50,8 @@ from ai_os.event_query import EventQueryService
 
 
 def create_app(data_dir: Path = Path(".data")) -> FastAPI:
-    app = FastAPI(title="AI OS MVP", version="0.1.0")
+    load_project_env(Path(".env.local"))
+    app = FastAPI(title="AIOS MVP", version="0.1.0")
     container = build_container(data_dir)
     intake = container.workflow_registry.build(
         "intake",
@@ -57,6 +60,7 @@ def create_app(data_dir: Path = Path(".data")) -> FastAPI:
         intent_engine=container.intent_engine,
         cognition_engine=container.cognition_engine,
         task_engine=container.task_engine,
+        event_repo=container.event_repo,
     )
     delivery = container.workflow_registry.build(
         "delivery",
@@ -123,6 +127,10 @@ def create_app(data_dir: Path = Path(".data")) -> FastAPI:
     @app.get("/memory/recall", response_model=MemoryRecallResponse)
     def recall_memories(query: str, limit: int = 5):
         return container.memory_engine.recall(query=query, limit=limit)
+
+    @app.get("/learning/insights", response_model=LearningRecallResponse)
+    def recall_learning(query: str = "", limit: int = 5):
+        return container.memory_engine.recall_learning(query=query, limit=limit)
 
     @app.get("/goals", response_model=list[GoalRecord])
     def list_goals():

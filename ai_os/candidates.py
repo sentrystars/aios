@@ -297,6 +297,14 @@ class CandidateTaskService:
             policy["auto_acceptable"] = False
             policy["needs_confirmation"] = True
             policy["priority"] = max(int(policy["priority"]), 4)
+        if reason_code in {"captured_task", "due_reminder", "due_calendar_event"}:
+            autonomy_score = cls._task_autonomy_score(task)
+            if autonomy_score >= 3:
+                policy["priority"] = 5
+                policy["auto_acceptable"] = True
+                policy["needs_confirmation"] = False
+            elif autonomy_score >= 2:
+                policy["priority"] = max(int(policy["priority"]), 4)
         return policy
 
     @classmethod
@@ -334,6 +342,28 @@ class CandidateTaskService:
                 )
             )
         return candidates
+
+    @staticmethod
+    def _task_autonomy_score(task: TaskRecord) -> int:
+        score = 0
+        tags = set(task.tags)
+        if task.implementation_contract is not None:
+            score += 2
+        if task.execution_mode.value == "file_artifact":
+            score += 1
+        if task.runtime_name or task.execution_plan.runtime_name:
+            score += 1
+        if task.intelligence_trace.get("provider"):
+            score += 1
+        if "intelligence:cloud" in tags or "intelligence:deepseek" in tags:
+            score += 1
+        if "task:implementation" in tags:
+            score += 1
+        if task.execution_plan.confirmation_required:
+            score -= 3
+        if "governance:cautious" in tags or "guardrail:reflection" in tags:
+            score -= 2
+        return max(score, 0)
 
     def accept(self, payload: CandidateAcceptancePayload) -> CandidateAcceptanceResult:
         if payload.kind == "confirm_gate" and payload.source_task_id:

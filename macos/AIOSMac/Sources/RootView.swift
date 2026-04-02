@@ -285,7 +285,7 @@ private struct OverviewView: View {
             VStack(alignment: .leading, spacing: 24) {
                 BrandHero(
                     eyebrow: appState.text("Today Workspace", "今日工作台"),
-                    title: appState.text("Work With AI OS", "和 AI OS 一起工作"),
+                    title: appState.text("Work With AIOS", "和 AIOS 一起工作"),
                     subtitle: appState.text("See what matters now, clear new requests, and move active work forward without living in backend screens.", "先看到当前重要事项，清空新请求，再推进活跃任务，而不是一直停留在后台页面。")
                 )
 
@@ -347,7 +347,7 @@ private struct OverviewView: View {
                             }
                             QuickActionTile(
                                 title: appState.text("Start A Conversation", "发起新对话"),
-                                subtitle: appState.text("Tell AI OS what you want and let it decide whether to advise, plan, or create work.", "直接告诉 AI OS 你想做什么，让它判断是给建议、出计划，还是生成任务。"),
+                                subtitle: appState.text("Tell AIOS what you want and let it decide whether to advise, plan, or create work.", "直接告诉 AIOS 你想做什么，让它判断是给建议、出计划，还是生成任务。"),
                                 accent: Brand.active
                             ) {
                                 appState.selectedDestination = .inbox
@@ -537,7 +537,7 @@ private struct InboxWorkbenchView: View {
             VStack(alignment: .leading, spacing: 24) {
                 BrandHero(
                     eyebrow: appState.text("Assistant Conversation", "助理对话"),
-                    title: appState.text("Tell AI OS What You Need", "告诉 AI OS 你想做什么"),
+                    title: appState.text("Tell AIOS What You Need", "告诉 AIOS 你想做什么"),
                     subtitle: appState.text("Write the request the way you would message a capable assistant. This page is for plans, reminders, decisions, and turning concrete asks into tracked work.", "像给一个靠谱助理发消息一样写需求。这里适合做规划、提提醒、帮你判断，或者把明确事项转成可追踪任务。")
                 )
 
@@ -562,7 +562,7 @@ private struct InboxWorkbenchView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(appState.text("Describe the outcome in plain language.", "直接用自然语言写你想达成的结果。"))
                             .font(.title3.weight(.semibold))
-                        Text(appState.text("Good requests usually mention three things: what you want, what constraints matter, and whether it is urgent. AI OS will decide the right depth.", "好的需求一般包含三件事：你要什么、有哪些约束、这件事急不急。AI OS 会自己决定应该用多深的方式处理。"))
+                        Text(appState.text("Good requests usually mention three things: what you want, what constraints matter, and whether it is urgent. AIOS will decide the right depth.", "好的需求一般包含三件事：你要什么、有哪些约束、这件事急不急。AIOS 会自己决定应该用多深的方式处理。"))
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -584,7 +584,7 @@ private struct InboxWorkbenchView: View {
 
                     if appState.latestIntakeResponse != nil || appState.latestIntentEvaluation != nil {
                         InboxMessageBubble(
-                            title: appState.text("AI OS", "AI OS"),
+                            title: appState.text("AIOS", "AIOS"),
                             bodyText: conversationAssistantMessage,
                             accent: Brand.mint,
                             inverted: true,
@@ -626,7 +626,7 @@ private struct InboxWorkbenchView: View {
                     RequestStepBadge(
                         index: "2",
                         title: appState.text("Send", "发送"),
-                        detail: appState.text("AI OS takes over from here.", "从这里开始交给 AI OS。"),
+                        detail: appState.text("AIOS takes over from here.", "从这里开始交给 AIOS。"),
                         color: Brand.waiting
                     )
                     RequestStepBadge(
@@ -639,7 +639,7 @@ private struct InboxWorkbenchView: View {
 
                 GlassPanel(title: appState.text("Submit Request", "提交需求")) {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text(appState.text("Default behavior is automatic. Send the request once, and AI OS will create, plan, execute, and verify work when it is safe to do so.", "默认就是自动推进。你只要发送一次需求，AI OS 会在安全前提下自动创建、规划、执行并验证任务。"))
+                        Text(appState.text("Default behavior is automatic. Send the request once, and AIOS will create, plan, execute, and verify work when it is safe to do so.", "默认就是自动推进。你只要发送一次需求，AIOS 会在安全前提下自动创建、规划、执行并验证任务。"))
                             .foregroundStyle(.secondary)
 
                         HStack(alignment: .top, spacing: 12) {
@@ -655,7 +655,7 @@ private struct InboxWorkbenchView: View {
 
                             inboxActionButton(
                                 title: appState.text("Send Request", "发送需求"),
-                                subtitle: appState.text("AI OS will automatically turn this into actions and stop only when confirmation is genuinely needed.", "AI OS 会自动把这条需求推进成动作，只有真的需要确认时才会停下来。"),
+                                subtitle: appState.text("AIOS will automatically turn this into actions and stop only when confirmation is genuinely needed.", "AIOS 会自动把这条需求推进成动作，只有真的需要确认时才会停下来。"),
                                 systemImage: "paperplane.fill",
                                 prominent: true,
                                 disabled: !appState.canProcessInbox
@@ -751,7 +751,7 @@ private struct InboxWorkbenchView: View {
 
     private var outcomePanels: some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 16)], spacing: 16) {
-            GlassPanel(title: appState.text("What AI OS Understood", "AI OS 的理解")) {
+            GlassPanel(title: appState.text("What AIOS Understood", "AIOS 的理解")) {
                 if let intent = appState.latestIntentEvaluation {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
@@ -905,22 +905,22 @@ private struct InboxWorkbenchView: View {
             case "done":
                 switch task.executionMode {
                 case "calendar_event":
-                    return appState.text("AI OS has already placed this on your calendar. You can review the created task and schedule on the right.", "AI OS 已经把这件事放进日历了。你可以在右侧查看生成的任务和时间安排。")
+                    return appState.text("AIOS has already placed this on your calendar. You can review the created task and schedule on the right.", "AIOS 已经把这件事放进日历了。你可以在右侧查看生成的任务和时间安排。")
                 case "reminder":
-                    return appState.text("AI OS has created the reminder and completed the request.", "AI OS 已经创建提醒并完成这条需求。")
+                    return appState.text("AIOS has created the reminder and completed the request.", "AIOS 已经创建提醒并完成这条需求。")
                 default:
-                    return appState.text("AI OS has completed this request. You can review the result on the right.", "AI OS 已经完成这条需求。你可以在右侧查看结果。")
+                    return appState.text("AIOS has completed this request. You can review the result on the right.", "AIOS 已经完成这条需求。你可以在右侧查看结果。")
                 }
             case "blocked":
-                return appState.text("AI OS has taken over, but it still needs your confirmation or review before continuing.", "AI OS 已经接手，但继续前还需要你的确认或复核。")
+                return appState.text("AIOS has taken over, but it still needs your confirmation or review before continuing.", "AIOS 已经接手，但继续前还需要你的确认或复核。")
             default:
-                return appState.text("AI OS has taken over this request and is still moving it forward.", "AI OS 已经接手这条需求，并正在继续推进。")
+                return appState.text("AIOS has taken over this request and is still moving it forward.", "AIOS 已经接手这条需求，并正在继续推进。")
             }
         }
         if let intent = appState.latestIntentEvaluation {
             return intent.rationale
         }
-        return appState.text("AI OS will summarize what it understood here after you send the request.", "发送后，AI OS 会在这里说明它理解到的内容。")
+        return appState.text("AIOS will summarize what it understood here after you send the request.", "发送后，AIOS 会在这里说明它理解到的内容。")
     }
 
     private var actionHint: String {
@@ -930,7 +930,7 @@ private struct InboxWorkbenchView: View {
         if appState.latestIntakeResponse?.task != nil {
             return appState.text("This request already ran through the workflow. Review the result below, or refine the request and send it again.", "这条请求已经走过自动流程。你可以直接看下面的结果，或者改写后重新发送。")
         }
-        return appState.text("Send Request is the default path. AI OS will auto-run the workflow and stop only for real confirmation or policy blockers.", "发送需求是默认路径。AI OS 会自动跑完整流程，只有遇到真实确认或策略阻塞时才会停下。")
+        return appState.text("Send Request is the default path. AIOS will auto-run the workflow and stop only for real confirmation or policy blockers.", "发送需求是默认路径。AIOS 会自动跑完整流程，只有遇到真实确认或策略阻塞时才会停下。")
     }
 
     private var draftLength: Int {
@@ -1430,7 +1430,7 @@ private struct MemoryListView: View {
                 if memories.isEmpty {
                     EmptyWorkspaceState(
                         title: appState.text("No memory here yet", "这里还没有记忆"),
-                        detail: appState.text("Once AI OS captures reflections or context, they will show up here for reuse.", "当 AI OS 开始积累上下文和复盘时，这里会出现可复用内容。")
+                        detail: appState.text("Once AIOS captures reflections or context, they will show up here for reuse.", "当 AIOS 开始积累上下文和复盘时，这里会出现可复用内容。")
                     )
                 } else {
                     VStack(alignment: .leading, spacing: 10) {
@@ -3517,11 +3517,14 @@ private struct TaskDetailView: View {
 
                         switch selection {
                         case .summary:
+                            intelligenceOverviewSection(for: task)
                             detailSection(appState.text("Success Criteria", "成功标准"), items: task.successCriteria, empty: appState.text("No success criteria.", "没有成功标准。"))
                             detailSection(appState.text("Immediate Plan", "当前计划"), items: task.executionPlan.steps.map { "\($0.capabilityName): \($0.purpose)" }, empty: appState.text("No plan steps yet.", "还没有计划步骤。"))
                             detailSection(appState.text("Artifacts", "产物"), items: task.artifactPaths, empty: appState.text("No artifacts produced yet.", "还没有生成产物。"))
                             detailSection(appState.text("Verification Notes", "验证说明"), items: task.verificationNotes, empty: appState.text("还没有验证说明。", "还没有验证说明。"))
                             detailSection(appState.text("Tags", "标签"), items: task.tags, empty: appState.text("No tags attached.", "没有附加标签。"))
+                            implementationContractSection(for: task)
+                            intelligenceTraceSection(for: task)
                         case .timeline:
                             timelineSection
                         case .relations:
@@ -3591,6 +3594,146 @@ private struct TaskDetailView: View {
                     }
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func intelligenceOverviewSection(for task: TaskRecord) -> some View {
+        let trace = task.intelligenceTrace
+        let provider = trace["provider"]?.stringValue
+        let model = trace["model"]?.stringValue
+        let intentType = trace["intent_type"]?.stringValue
+        let runtime = trace["runtime_name"]?.stringValue ?? task.runtimeName
+        let mode = trace["execution_mode"]?.stringValue ?? task.executionMode
+        let rationale = trace["rationale"]?.stringValue
+        let constraints = trace["constraints"]?.stringArrayValue ?? []
+
+        GlassPanel(title: appState.text("Intelligence Overview", "认知摘要")) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    if let provider, !provider.isEmpty {
+                        StatusBadge(label: provider, color: Brand.pine)
+                    }
+                    if let model, !model.isEmpty {
+                        StatusBadge(label: model, color: Brand.ink)
+                    }
+                    if let intentType, !intentType.isEmpty {
+                        StatusBadge(label: appState.displayToken(intentType), color: Brand.active)
+                    }
+                }
+                executionLine(appState.text("Execution Mode", "执行模式"), mode)
+                executionLine(appState.text("Runtime Decision", "运行时决策"), runtime ?? appState.text("Automatic", "自动选择"))
+                if let rationale, !rationale.isEmpty {
+                    executionLine(appState.text("Why This Path", "为何这么做"), rationale)
+                }
+                if !constraints.isEmpty {
+                    detailList(appState.text("Understanding Constraints", "理解到的约束"), items: constraints)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func implementationContractSection(for task: TaskRecord) -> some View {
+        GlassPanel(title: appState.text("Implementation Contract", "实现契约")) {
+            if let contract = task.implementationContract {
+                VStack(alignment: .leading, spacing: 12) {
+                    executionLine(appState.text("Summary", "摘要"), contract.summary)
+                    executionLine(appState.text("Deliverable Type", "交付类型"), contract.deliverableType)
+                    if let preferredRuntime = contract.preferredRuntime, !preferredRuntime.isEmpty {
+                        executionLine(appState.text("Preferred Runtime", "首选运行时"), preferredRuntime)
+                    }
+                    detailList(appState.text("Execution Scope", "执行范围"), items: contract.executionScope)
+                    detailList(appState.text("Acceptance Criteria", "验收标准"), items: contract.acceptanceCriteria)
+                    detailList(appState.text("Constraints", "约束"), items: contract.constraints)
+                    detailList(appState.text("Planned Subtasks", "计划子任务"), items: contract.plannedSubtasks)
+                    outputRequirementsSection(contract.outputRequirements ?? [])
+                    detailList(appState.text("Expected Outputs", "预期输出"), items: contract.expectedOutputs)
+                    detailList(appState.text("Repo Instructions", "仓库指令"), items: contract.repoInstructions)
+                }
+            } else {
+                Text(appState.text("No implementation contract recorded yet.", "还没有记录实现契约。"))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func intelligenceTraceSection(for task: TaskRecord) -> some View {
+        GlassPanel(title: appState.text("Intelligence Trace", "认知轨迹")) {
+            let trace = task.intelligenceTrace
+                .filter { !$0.value.isNull }
+            if trace.isEmpty {
+                Text(appState.text("No intelligence trace recorded yet.", "还没有记录认知轨迹。"))
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(trace.keys.sorted(), id: \.self) { key in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(key)
+                                .font(.headline)
+                            traceValueView(trace[key] ?? .null)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func detailList(_ title: String, items: [String]) -> some View {
+        if !items.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(.headline)
+                ForEach(items, id: \.self) { item in
+                    Text(item)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func outputRequirementsSection(_ requirements: [ImplementationTaskContract.OutputRequirement]) -> some View {
+        if !requirements.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(appState.text("Output Requirements", "输出要求"))
+                    .font(.headline)
+                ForEach(Array(requirements.enumerated()), id: \.offset) { _, requirement in
+                    HStack {
+                        StatusBadge(label: requirement.key, color: Brand.ink)
+                        Text(requirement.label)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Text(requirement.source)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func traceValueView(_ value: JSONValue) -> some View {
+        switch value {
+        case .array(let items):
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                    Text(item.prettyText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        case .object:
+            Text(value.prettyText)
+                .font(.body.monospaced())
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+        default:
+            Text(value.prettyText)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -3910,6 +4053,21 @@ private struct RunInspectorSheet: View {
                 if let artifactPath = run.metadata["artifact_path"]?.stringValue {
                     inspectorLine(appState.text("Artifact", "产物"), artifactPath)
                 }
+                if case .object(let implementationResult) = run.metadata["runtime_implementation_result"] {
+                    implementationResultOverviewSection(implementationResult)
+                }
+                if case .object(let verificationSummary) = run.metadata["verification_summary"] {
+                    verificationSummarySection(verificationSummary)
+                }
+                if case .object(let taskContract) = run.metadata["runtime_task_contract"] {
+                    structuredMetadataSection(
+                        appState.text("Task Contract", "任务契约"),
+                        value: .object(taskContract)
+                    )
+                }
+                if case .object(let trace) = run.metadata["intelligence_trace"] {
+                    intelligenceTraceOverviewSection(trace)
+                }
 
                 if case .object(let invocationObject) = run.metadata["runtime_invocation"] {
                     if let workingDirectory = invocationObject["working_directory"]?.stringValue {
@@ -3990,6 +4148,175 @@ private struct RunInspectorSheet: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
+
+    @ViewBuilder
+    private func intelligenceTraceOverviewSection(_ trace: [String: JSONValue]) -> some View {
+        let provider = trace["provider"]?.stringValue
+        let model = trace["model"]?.stringValue
+        let intentType = trace["intent_type"]?.stringValue
+        let executionMode = trace["execution_mode"]?.stringValue
+        let runtimeName = trace["runtime_name"]?.stringValue
+        let rationale = trace["rationale"]?.stringValue
+
+        VStack(alignment: .leading, spacing: 8) {
+            Text(appState.text("Intelligence Trace", "认知轨迹"))
+                .font(.headline)
+            HStack {
+                if let provider, !provider.isEmpty {
+                    StatusBadge(label: provider, color: Brand.pine)
+                }
+                if let model, !model.isEmpty {
+                    StatusBadge(label: model, color: Brand.ink)
+                }
+                if let intentType, !intentType.isEmpty {
+                    StatusBadge(label: appState.displayToken(intentType), color: Brand.active)
+                }
+            }
+            if let executionMode, !executionMode.isEmpty {
+                inspectorLine(appState.text("Execution Mode", "执行模式"), executionMode)
+            }
+            if let runtimeName, !runtimeName.isEmpty {
+                inspectorLine(appState.text("Runtime", "运行时"), runtimeName)
+            }
+            if let rationale, !rationale.isEmpty {
+                inspectorLine(appState.text("Rationale", "推断依据"), rationale)
+            }
+            structuredMetadataSection(appState.text("Raw Trace", "原始轨迹"), value: .object(trace))
+        }
+    }
+
+    @ViewBuilder
+    private func implementationResultOverviewSection(_ result: [String: JSONValue]) -> some View {
+        let status = result["status"]?.stringValue
+        let changedFiles = result["changed_files"]?.stringArrayValue ?? []
+        let testsRun = result["tests_run"]?.stringArrayValue ?? []
+        let testsPassed = result["tests_passed"]?.stringArrayValue ?? []
+        let testsFailed = result["tests_failed"]?.stringArrayValue ?? []
+        let diffSummary = result["diff_summary"]?.stringValue
+        let blockers = result["blockers"]?.stringArrayValue ?? []
+        let nextStep = result["suggested_next_step"]?.stringValue
+
+        VStack(alignment: .leading, spacing: 8) {
+            Text(appState.text("Implementation Result", "实现结果"))
+                .font(.headline)
+            HStack {
+                if let status, !status.isEmpty {
+                    StatusBadge(label: appState.displayToken(status, category: .taskStatus), color: status == "done" ? Brand.mint : Brand.waiting)
+                }
+                if !changedFiles.isEmpty {
+                    StatusBadge(label: appState.text("\(changedFiles.count) files", "\(changedFiles.count) 个文件"), color: Brand.pine)
+                }
+                if !testsRun.isEmpty {
+                    StatusBadge(label: appState.text("\(testsRun.count) tests", "\(testsRun.count) 组测试"), color: Brand.amber)
+                }
+                if !testsFailed.isEmpty {
+                    StatusBadge(label: appState.text("\(testsFailed.count) failed", "\(testsFailed.count) 个失败"), color: Brand.danger)
+                }
+            }
+            if let diffSummary, !diffSummary.isEmpty {
+                inspectorLine(appState.text("Diff Summary", "变更摘要"), diffSummary)
+            }
+            if !changedFiles.isEmpty {
+                inspectorList(appState.text("Changed Files", "变更文件"), items: changedFiles)
+            }
+            if !testsRun.isEmpty {
+                inspectorList(appState.text("Tests Run", "执行测试"), items: testsRun)
+            }
+            if !testsPassed.isEmpty {
+                inspectorList(appState.text("Tests Passed", "通过测试"), items: testsPassed)
+            }
+            if !testsFailed.isEmpty {
+                inspectorList(appState.text("Tests Failed", "失败测试"), items: testsFailed)
+            }
+            if !blockers.isEmpty {
+                inspectorList(appState.text("Blockers", "阻塞项"), items: blockers)
+            }
+            if let nextStep, !nextStep.isEmpty {
+                inspectorLine(appState.text("Suggested Next Step", "建议下一步"), nextStep)
+            }
+            structuredMetadataSection(appState.text("Raw Result", "原始结果"), value: .object(result))
+        }
+    }
+
+    @ViewBuilder
+    private func verificationSummarySection(_ summary: [String: JSONValue]) -> some View {
+        let unmetLabels = summary["unmet_contract_outputs"]?.stringArrayValue ?? []
+        let unmetKeys = summary["unmet_contract_output_keys"]?.stringArrayValue ?? []
+        let satisfiedLabels = summary["satisfied_contract_outputs"]?.stringArrayValue ?? []
+        let satisfiedKeys = summary["satisfied_contract_output_keys"]?.stringArrayValue ?? []
+
+        VStack(alignment: .leading, spacing: 8) {
+            Text(appState.text("Verification Summary", "验证摘要"))
+                .font(.headline)
+            if !unmetKeys.isEmpty || !unmetLabels.isEmpty {
+                requirementStatusList(
+                    title: appState.text("Unmet Requirements", "未满足要求"),
+                    keys: unmetKeys,
+                    labels: unmetLabels,
+                    color: Brand.danger
+                )
+            }
+            if !satisfiedKeys.isEmpty || !satisfiedLabels.isEmpty {
+                requirementStatusList(
+                    title: appState.text("Satisfied Requirements", "已满足要求"),
+                    keys: satisfiedKeys,
+                    labels: satisfiedLabels,
+                    color: Brand.mint
+                )
+            }
+            structuredMetadataSection(appState.text("Raw Verification Summary", "原始验证摘要"), value: .object(summary))
+        }
+    }
+
+    @ViewBuilder
+    private func requirementStatusList(title: String, keys: [String], labels: [String], color: Color) -> some View {
+        if !keys.isEmpty || !labels.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(.headline)
+                ForEach(Array(keys.enumerated()), id: \.offset) { index, key in
+                    HStack {
+                        StatusBadge(label: key, color: color)
+                        Text(index < labels.count ? labels[index] : key)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                if labels.count > keys.count {
+                    ForEach(Array(labels.dropFirst(keys.count)), id: \.self) { label in
+                        Text(label)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func inspectorList(_ title: String, items: [String]) -> some View {
+        if !items.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(.headline)
+                ForEach(items, id: \.self) { item in
+                    Text(item)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+    }
+
+    private func structuredMetadataSection(_ title: String, value: JSONValue) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.headline)
+            Text(value.prettyText)
+                .font(.body.monospaced())
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+        }
+    }
 }
 
 private extension ExecutionRunRecord {
@@ -4007,6 +4334,10 @@ private extension ExecutionRunRecord {
                     "runtime_stdout",
                     "runtime_stderr",
                     "runtime_invocation",
+                    "runtime_task_contract",
+                    "runtime_implementation_result",
+                    "verification_summary",
+                    "intelligence_trace",
                     "artifact_path",
                 ].contains(key)
             }
@@ -4014,6 +4345,17 @@ private extension ExecutionRunRecord {
             .sorted()
             .map { "\($0)=\(metadata[$0]?.displayText ?? "")" }
             .joined(separator: ", ")
+    }
+}
+
+private extension TaskRecord {
+    var usesCloudIntelligence: Bool {
+        let provider = intelligenceTrace["provider"]?.stringValue ?? ""
+        return !provider.isEmpty || tags.contains("intelligence:cloud") || tags.contains("intelligence:deepseek")
+    }
+
+    var isImplementationTask: Bool {
+        implementationContract != nil || tags.contains("task:implementation")
     }
 }
 
@@ -4056,6 +4398,12 @@ private struct TaskRow: View {
             HStack {
                 StatusBadge(label: appState.displayToken(task.status, category: .taskStatus), color: Brand.pine)
                 StatusBadge(label: appState.displayToken(task.riskLevel, category: .riskLevel), color: Brand.amber)
+                if task.usesCloudIntelligence {
+                    StatusBadge(label: "cloud", color: Brand.active)
+                }
+                if task.isImplementationTask {
+                    StatusBadge(label: "implementation", color: Brand.ink)
+                }
                 if let firstTag = task.tags.first {
                     StatusBadge(label: firstTag, color: .gray.opacity(0.7))
                 }
@@ -4087,6 +4435,12 @@ private struct TaskWorkspaceCard: View {
             HStack {
                 StatusBadge(label: appState.displayToken(task.executionMode, category: .executionMode), color: Brand.pine)
                 StatusBadge(label: appState.displayToken(task.riskLevel, category: .riskLevel), color: Brand.amber)
+                if task.usesCloudIntelligence {
+                    StatusBadge(label: "cloud", color: Brand.active)
+                }
+                if task.isImplementationTask {
+                    StatusBadge(label: "implementation", color: Brand.ink)
+                }
                 if let runtimeName = task.runtimeName, !runtimeName.isEmpty {
                     StatusBadge(label: runtimeName, color: Brand.ink)
                 }

@@ -1,6 +1,6 @@
 {
   "name": "claude-code",
-  "description": "Claude Code plugin bridging the development runtime into AI OS task execution.",
+  "description": "Claude Code plugin bridging the development runtime into AIOS task execution.",
   "version": "0.1.0",
   "runtimes": [
     "claude-code"

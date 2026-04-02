@@ -52,6 +52,7 @@ class Database:
                     id TEXT PRIMARY KEY,
                     objective TEXT NOT NULL,
                     tags TEXT NOT NULL,
+                    intelligence_trace TEXT NOT NULL DEFAULT '{}',
                     success_criteria TEXT NOT NULL,
                     owner TEXT NOT NULL,
                     status TEXT NOT NULL,
@@ -61,6 +62,7 @@ class Database:
                     execution_mode TEXT NOT NULL,
                     runtime_name TEXT,
                     execution_plan TEXT NOT NULL,
+                    implementation_contract TEXT,
                     rollback_plan TEXT,
                     blocker_reason TEXT,
                     linked_goal_ids TEXT NOT NULL DEFAULT '[]',
@@ -115,10 +117,14 @@ class Database:
                 conn.execute("ALTER TABLE tasks ADD COLUMN runtime_name TEXT")
             if "tags" not in columns:
                 conn.execute("ALTER TABLE tasks ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'")
+            if "intelligence_trace" not in columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN intelligence_trace TEXT NOT NULL DEFAULT '{}'")
             if "execution_plan" not in columns:
                 conn.execute(
                     "ALTER TABLE tasks ADD COLUMN execution_plan TEXT NOT NULL DEFAULT '{\"mode\":\"file_artifact\",\"steps\":[],\"confirmation_required\":false,\"expected_evidence\":[]}'"
                 )
+            if "implementation_contract" not in columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN implementation_contract TEXT")
             if "artifact_paths" not in columns:
                 conn.execute("ALTER TABLE tasks ADD COLUMN artifact_paths TEXT NOT NULL DEFAULT '[]'")
             if "verification_notes" not in columns:

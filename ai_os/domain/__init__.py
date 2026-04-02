@@ -27,11 +27,20 @@ from .intake import (
     IntentType,
     StructuredUnderstanding,
 )
-from .memory import MemoryCreatePayload, MemoryLayer, MemoryRecallItem, MemoryRecallResponse, MemoryRecord, MemoryType
+from .memory import (
+    LearningInsight,
+    LearningRecallResponse,
+    MemoryCreatePayload,
+    MemoryLayer,
+    MemoryRecallItem,
+    MemoryRecallResponse,
+    MemoryRecord,
+    MemoryType,
+)
 from .plugin import PluginDescriptor, PluginManifest
 from .policy import PolicyRuleDescriptor
 from .relations import EntityRelation
-from .runtime import RuntimeDescriptor, RuntimeInvocation, RuntimeManifest
+from .runtime import RuntimeDescriptor, RuntimeImplementationResult, RuntimeInvocation, RuntimeManifest
 from .scheduler import EscalationOutcome, EscalationPolicy, SchedulerTickPayload, SchedulerTickResult
 from .self_profile import PersonaAnchor, SelfProfile, SessionContext
 from .task import (
@@ -39,6 +48,7 @@ from .task import (
     ExecutionPlan,
     ExecutionRunRecord,
     ExecutionStep,
+    ImplementationTaskContract,
     RiskLevel,
     TaskAdvancePayload,
     TaskConfirmationPayload,
@@ -80,6 +90,7 @@ __all__ = [
     "ExecutionPlan",
     "ExecutionRunRecord",
     "ExecutionStep",
+    "ImplementationTaskContract",
     "GoalCreatePayload",
     "GoalKind",
     "GoalPlanResult",
@@ -91,6 +102,8 @@ __all__ = [
     "IntakeResponse",
     "IntentEnvelope",
     "IntentType",
+    "LearningInsight",
+    "LearningRecallResponse",
     "MemoryCreatePayload",
     "MemoryLayer",
     "MemoryRecallItem",
@@ -104,6 +117,7 @@ __all__ = [
     "ReminderRecord",
     "RiskLevel",
     "RuntimeDescriptor",
+    "RuntimeImplementationResult",
     "RuntimeInvocation",
     "RuntimeManifest",
     "SchedulerTickPayload",

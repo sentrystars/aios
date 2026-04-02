@@ -46,8 +46,10 @@ class EventQueryService:
             "candidate.auto_accepted": ("coordination", "Candidate Auto-Accepted", EventQueryService._candidate_detail(payload)),
             "candidate.auto_accept_batch_completed": ("coordination", "Candidate Auto-Accept Batch Completed", EventQueryService._candidate_batch_detail(payload)),
             "candidate.deferred": ("coordination", "Candidate Deferred", EventQueryService._candidate_defer_detail(payload)),
+            "intake.cloud_hint_used": ("intelligence", "Cloud Hint Applied", EventQueryService._cloud_hint_detail(payload)),
             "scheduler.stalled_task.escalated": ("coordination", "Stalled Task Escalated", EventQueryService._stalled_escalation_detail(payload)),
             "scheduler.stalled_task.followup_created": ("coordination", "Stalled Task Follow-Up Created", EventQueryService._stalled_followup_detail(payload)),
+            "scheduler.stalled_task.replan_created": ("coordination", "Stalled Task Replan Created", EventQueryService._stalled_followup_detail(payload)),
             "scheduler.stalled_task.reminder_created": ("coordination", "Stalled Task Reminder Created", EventQueryService._stalled_task_detail(payload)),
             "scheduler.tick.completed": ("coordination", "Scheduler Tick Completed", EventQueryService._scheduler_tick_detail(payload)),
             "execution_run.started": ("run", "Execution Run Started", EventQueryService._run_detail(payload)),
@@ -55,6 +57,7 @@ class EventQueryService:
             "execution_run.completed": ("run", "Execution Run Completed", EventQueryService._run_completion_detail(payload)),
             "memory.created": ("memory", "Memory Stored", payload.get("title", "Memory created")),
             "memory.reflection_created": ("reflection", "Reflection Stored", payload.get("title", "Reflection created")),
+            "memory.learning_created": ("learning", "Learning Stored", payload.get("title", "Learning created")),
             "relation.created": ("relation", "Relation Recorded", EventQueryService._relation_detail(payload)),
             "self.updated": ("self", "Self Profile Updated", EventQueryService._self_detail(payload)),
         }
@@ -161,6 +164,16 @@ class EventQueryService:
         )
 
     @staticmethod
+    def _cloud_hint_detail(payload: dict) -> str:
+        provider = payload.get("provider", "cloud")
+        model = payload.get("model", "unknown")
+        intent_type = payload.get("intent_type", "unknown")
+        execution_mode = payload.get("execution_mode", "unknown")
+        runtime_name = payload.get("runtime_name")
+        runtime_detail = f", runtime {runtime_name}" if runtime_name else ""
+        return f"{provider}/{model} suggested intent {intent_type}, mode {execution_mode}{runtime_detail}."
+
+    @staticmethod
     def _skip_reason_summary(payload: dict) -> str:
         skip_reason_counts = payload.get("skip_reason_counts", {})
         if not skip_reason_counts:
@@ -175,9 +188,11 @@ class EventQueryService:
 
     @staticmethod
     def _stalled_followup_detail(payload: dict) -> str:
+        reason = payload.get("reason", "blocked")
         return (
             f"Created follow-up {payload.get('followup_task_id')} for blocked task "
-            f"{payload.get('task_id')} after {payload.get('stale_after_minutes', 'unknown')} minutes."
+            f"{payload.get('task_id')} after {payload.get('stale_after_minutes', 'unknown')} minutes "
+            f"(reason: {reason})."
         )
 
     @staticmethod

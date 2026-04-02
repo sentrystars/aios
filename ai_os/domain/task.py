@@ -47,10 +47,30 @@ class ExecutionPlan(BaseModel):
     expected_evidence: list[str] = Field(default_factory=list)
 
 
+class ImplementationTaskContract(BaseModel):
+    class OutputRequirement(BaseModel):
+        key: str
+        label: str
+        source: str
+        required: bool = True
+
+    summary: str
+    deliverable_type: str
+    execution_scope: str
+    acceptance_criteria: list[str] = Field(default_factory=list)
+    constraints: list[str] = Field(default_factory=list)
+    planned_subtasks: list[str] = Field(default_factory=list)
+    expected_outputs: list[str] = Field(default_factory=list)
+    output_requirements: list[OutputRequirement] = Field(default_factory=list)
+    repo_instructions: list[str] = Field(default_factory=list)
+    preferred_runtime: str | None = None
+
+
 class TaskRecord(BaseModel):
     id: str
     objective: str
     tags: list[str] = Field(default_factory=list)
+    intelligence_trace: dict[str, object] = Field(default_factory=dict)
     success_criteria: list[str] = Field(default_factory=list)
     owner: str = "ai_os"
     status: TaskStatus = TaskStatus.CAPTURED
@@ -60,6 +80,7 @@ class TaskRecord(BaseModel):
     execution_mode: ExecutionMode = ExecutionMode.FILE_ARTIFACT
     runtime_name: str | None = None
     execution_plan: ExecutionPlan = Field(default_factory=lambda: ExecutionPlan(mode=ExecutionMode.FILE_ARTIFACT))
+    implementation_contract: ImplementationTaskContract | None = None
     rollback_plan: str | None = None
     blocker_reason: str | None = None
     linked_goal_ids: list[str] = Field(default_factory=list)
@@ -72,12 +93,14 @@ class TaskRecord(BaseModel):
 class TaskCreatePayload(BaseModel):
     objective: str
     tags: list[str] = Field(default_factory=list)
+    intelligence_trace: dict[str, object] = Field(default_factory=dict)
     success_criteria: list[str] = Field(default_factory=list)
     risk_level: RiskLevel = RiskLevel.LOW
     linked_goal_ids: list[str] = Field(default_factory=list)
     execution_mode: ExecutionMode | None = None
     runtime_name: str | None = None
     execution_plan: ExecutionPlan | None = None
+    implementation_contract: ImplementationTaskContract | None = None
     rollback_plan: str | None = None
 
 

@@ -8,7 +8,7 @@ struct AIOSMacApp: App {
     @StateObject private var appState = AppState()
 
     var body: some Scene {
-        Window("AI OS", id: "main") {
+        Window("AIOS", id: "main") {
             RootView(appState: appState)
                 .frame(minWidth: 1180, minHeight: 760)
                 .task {
@@ -36,7 +36,7 @@ struct AIOSMacApp: App {
                     .resizable()
                     .interpolation(.high)
                     .frame(width: 16, height: 16)
-                Text("AI OS")
+                Text("AIOS")
             }
         }
     }
@@ -135,7 +135,7 @@ private struct AIOSCommands: Commands {
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
-        CommandMenu("AI OS") {
+        CommandMenu("AIOS") {
             Button(appState.text("Open Dashboard", "打开主面板")) {
                 appState.showMainWindow()
                 openWindow(id: "main")
@@ -188,7 +188,7 @@ private struct MenuBarControlView: View {
                     .interpolation(.high)
                     .frame(width: 22, height: 22)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("AI OS")
+                    Text("AIOS")
                         .font(.headline)
                     Label(connectionText, systemImage: menuBarIcon)
                         .foregroundStyle(connectionColor)
