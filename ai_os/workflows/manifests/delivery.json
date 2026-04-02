@@ -1,0 +1,7 @@
+{
+  "name": "delivery",
+  "handler": "delivery",
+  "description": "Execute tasks, verifications, confirmations, and reflections.",
+  "entrypoint": "DeliveryCoordinator.execute_task",
+  "tags": ["execution", "delivery", "verification"]
+}

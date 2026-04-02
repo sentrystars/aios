@@ -1,0 +1,19 @@
+{
+  "name": "ai-os-core",
+  "description": "Core AI OS plugin providing the built-in user-facing capabilities and default workflows.",
+  "version": "0.1.0",
+  "capabilities": [
+    "local_files",
+    "reminders",
+    "calendar",
+    "notes",
+    "messaging"
+  ],
+  "workflows": [
+    "intake",
+    "delivery"
+  ],
+  "notes": [
+    "Discovered from plugin manifest."
+  ]
+}

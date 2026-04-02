@@ -178,6 +178,7 @@ private struct AIOSCommands: Commands {
 private struct MenuBarControlView: View {
     @ObservedObject var appState: AppState
     @Environment(\.openWindow) private var openWindow
+    private let panelWidth: CGFloat = 320
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -192,6 +193,7 @@ private struct MenuBarControlView: View {
                     Label(connectionText, systemImage: menuBarIcon)
                         .foregroundStyle(connectionColor)
                         .font(.subheadline)
+                        .lineLimit(1)
                 }
                 Spacer()
             }
@@ -201,9 +203,11 @@ private struct MenuBarControlView: View {
                 openWindow(id: "main")
             }
             .buttonStyle(.borderedProminent)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             TextField(appState.text("Quick task", "快速任务"), text: $appState.menuBarQuickTaskTitle)
                 .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: .infinity)
 
             Button(appState.text("Create Quick Task", "创建快速任务")) {
                 appState.showMainWindow()
@@ -211,42 +215,50 @@ private struct MenuBarControlView: View {
                 Task { await appState.createQuickTaskFromMenuBar() }
             }
             .disabled(appState.menuBarQuickTaskTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             Divider()
 
-            Button(appState.text("Refresh All", "刷新全部")) {
-                Task { await appState.reloadAll() }
-            }
-            Button(appState.text("Refresh Candidates", "刷新候选")) {
-                Task { await appState.reloadCandidates() }
-            }
-            Button(appState.text("Retry Backend Connection", "重试后端连接")) {
-                Task { await appState.startupProbe() }
-            }
-            if appState.backendProcessState == .running {
-                Button(appState.text("Stop Local Backend", "停止本地后端")) {
-                    appState.stopBackendProcess()
+            VStack(alignment: .leading, spacing: 8) {
+                Button(appState.text("Refresh All", "刷新全部")) {
+                    Task { await appState.reloadAll() }
                 }
-            } else {
-                Button(appState.text("Start Local Backend", "启动本地后端")) {
-                    appState.startBackendProcess()
+                Button(appState.text("Refresh Candidates", "刷新候选")) {
+                    Task { await appState.reloadCandidates() }
+                }
+                Button(appState.text("Retry Backend Connection", "重试后端连接")) {
+                    Task { await appState.startupProbe() }
+                }
+                if appState.backendProcessState == .running {
+                    Button(appState.text("Stop Local Backend", "停止本地后端")) {
+                        appState.stopBackendProcess()
+                    }
+                } else {
+                    Button(appState.text("Start Local Backend", "启动本地后端")) {
+                        appState.startBackendProcess()
+                    }
+                }
+                Button(appState.text("Run Scheduler Tick", "执行调度轮询")) {
+                    Task { await appState.runSchedulerTick() }
                 }
             }
-            Button(appState.text("Run Scheduler Tick", "执行调度轮询")) {
-                Task { await appState.runSchedulerTick() }
-            }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             Divider()
 
-            Text("Tasks: \(appState.tasks.count)")
-                .foregroundStyle(.secondary)
-            Text("Candidates: \(appState.candidates.count)")
-                .foregroundStyle(.secondary)
-            Text(processText)
-                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Tasks: \(appState.tasks.count)")
+                    .foregroundStyle(.secondary)
+                Text("Candidates: \(appState.candidates.count)")
+                    .foregroundStyle(.secondary)
+                Text(processText)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
         }
+        .controlSize(.small)
         .padding(12)
-        .frame(minWidth: 280)
+        .frame(width: panelWidth, alignment: .topLeading)
     }
 
     private var menuBarIcon: String {

@@ -21,6 +21,12 @@ struct RootView: View {
                 ReminderOperationsView(appState: appState)
             case .capabilities:
                 CapabilityListView(appState: appState)
+            case .runtimes:
+                RuntimeListView(appState: appState)
+            case .plugins:
+                PluginListView(appState: appState)
+            case .workflows:
+                WorkflowListView(appState: appState)
             case .events:
                 EventStreamView(appState: appState)
             case .selfProfile:
@@ -42,6 +48,12 @@ struct RootView: View {
                 ReminderDetailView(appState: appState)
             case .capabilities:
                 CapabilityDetailView(appState: appState)
+            case .runtimes:
+                RuntimeDetailView(appState: appState)
+            case .plugins:
+                PluginDetailView(appState: appState)
+            case .workflows:
+                WorkflowDetailView(appState: appState)
             default:
                 TaskDetailView(
                     appState: appState,
@@ -141,8 +153,16 @@ private struct SidebarView: View {
 
     var body: some View {
         List(selection: $appState.selectedDestination) {
-            Section("AI OS") {
-                ForEach(AppState.SidebarDestination.allCases) { item in
+            Section(appState.text("Workspace", "工作区")) {
+                ForEach(workspaceItems) { item in
+                    NavigationLink(value: item) {
+                        Label(localizedTitle(for: item), systemImage: icon(for: item))
+                    }
+                }
+            }
+
+            Section(appState.text("Developer", "开发者")) {
+                ForEach(developerItems) { item in
                     NavigationLink(value: item) {
                         Label(localizedTitle(for: item), systemImage: icon(for: item))
                     }
@@ -164,6 +184,14 @@ private struct SidebarView: View {
         .listStyle(.sidebar)
     }
 
+    private var workspaceItems: [AppState.SidebarDestination] {
+        [.overview, .inbox, .tasks, .memory, .reminders, .candidates]
+    }
+
+    private var developerItems: [AppState.SidebarDestination] {
+        [.capabilities, .runtimes, .plugins, .workflows, .events, .selfProfile]
+    }
+
     private var statusText: String {
         if appState.isLoading {
             return appState.text("Syncing", "同步中")
@@ -183,7 +211,7 @@ private struct SidebarView: View {
         case .overview:
             return appState.text("Overview", "总览")
         case .inbox:
-            return appState.text("Inbox", "收件箱")
+            return appState.text("Conversation", "对话")
         case .tasks:
             return appState.text("Tasks", "任务")
         case .memory:
@@ -192,6 +220,12 @@ private struct SidebarView: View {
             return appState.text("Reminders", "提醒")
         case .capabilities:
             return appState.text("Capabilities", "能力")
+        case .runtimes:
+            return appState.text("Runtimes", "运行时")
+        case .plugins:
+            return appState.text("Plugins", "插件")
+        case .workflows:
+            return appState.text("Workflows", "工作流")
         case .events:
             return appState.text("Events", "事件")
         case .selfProfile:
@@ -217,7 +251,7 @@ private struct SidebarView: View {
         case .overview:
             return "square.grid.2x2"
         case .inbox:
-            return "tray.and.arrow.down"
+            return "bubble.left.and.text.bubble.right"
         case .tasks:
             return "checklist"
         case .memory:
@@ -226,6 +260,12 @@ private struct SidebarView: View {
             return "bell.badge"
         case .capabilities:
             return "switch.2"
+        case .runtimes:
+            return "server.rack"
+        case .plugins:
+            return "shippingbox"
+        case .workflows:
+            return "point.3.connected.trianglepath.dotted"
         case .events:
             return "waveform.path.ecg.rectangle"
         case .selfProfile:
@@ -244,224 +284,143 @@ private struct OverviewView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 BrandHero(
-                    eyebrow: appState.text("Desktop Control", "桌面控制"),
-                    title: appState.text("AI OS Control Surface", "AI OS 控制面板"),
-                    subtitle: appState.text("Local-first orchestration for tasks, memory, scheduling, and backend operations.", "面向任务、记忆、调度和后端运行的本地优先控制台。")
+                    eyebrow: appState.text("Today Workspace", "今日工作台"),
+                    title: appState.text("Work With AI OS", "和 AI OS 一起工作"),
+                    subtitle: appState.text("See what matters now, clear new requests, and move active work forward without living in backend screens.", "先看到当前重要事项，清空新请求，再推进活跃任务，而不是一直停留在后台页面。")
                 )
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 16)], spacing: 16) {
-                    MetricCard(title: appState.text("Current Phase", "当前阶段"), value: appState.selfProfile.currentPhase.capitalized, accent: Brand.pine)
-                    MetricCard(title: appState.text("Risk Style", "风险风格"), value: appState.selfProfile.riskStyle.capitalized, accent: Brand.amber)
-                    MetricCard(title: appState.text("Goal Graph", "目标图谱"), value: "\(appState.goals.count)", accent: Brand.pine)
-                    MetricCard(title: appState.text("Devices", "设备"), value: "\(appState.devices.count)", accent: Brand.mint)
-                    MetricCard(title: appState.text("Open Tasks", "进行中任务"), value: "\(appState.tasks.filter { $0.status != "done" && $0.status != "archived" }.count)", accent: Brand.mint)
-                    MetricCard(title: appState.text("Memory Records", "记忆记录"), value: "\(appState.memories.count)", accent: Brand.ink)
-                    MetricCard(title: appState.text("Capabilities", "能力"), value: "\(appState.capabilities.count)", accent: Brand.pine)
-                    MetricCard(title: appState.text("Candidates", "候选项"), value: "\(appState.candidates.count)", accent: Brand.amber)
-                    MetricCard(title: appState.text("Recent Events", "最近事件"), value: "\(appState.events.count)", accent: Brand.ink)
-                    MetricCard(title: appState.text("Backend", "后端"), value: backendLabel, accent: backendAccent)
+                    MetricCard(title: appState.text("Focus Task", "当前焦点"), value: focusMetric, accent: Brand.active)
+                    MetricCard(title: appState.text("Ready Now", "可立即开始"), value: "\(readyTasks.count)", accent: Brand.action)
+                    MetricCard(title: appState.text("Needs Review", "等待处理"), value: "\(attentionTasks.count)", accent: Brand.waiting)
+                    MetricCard(title: appState.text("Due Reminders", "即将提醒"), value: "\(dueReminders.count)", accent: Brand.reference)
                 }
 
                 HStack(alignment: .top, spacing: 16) {
-                    GlassPanel(title: appState.text("Goals", "目标")) {
-                        TagCloud(items: appState.selfProfile.longTermGoals, emptyText: appState.text("No long-term goals recorded yet.", "还没有记录长期目标。"))
-                    }
-                    GlassPanel(title: appState.text("Values", "价值观")) {
-                        TagCloud(items: appState.selfProfile.values, emptyText: appState.text("No values recorded yet.", "还没有记录价值观。"))
-                    }
-                }
-
-                HStack(alignment: .top, spacing: 16) {
-                    GlassPanel(title: appState.text("Persona Anchor", "人格锚点")) {
-                        VStack(alignment: .leading, spacing: 10) {
-                            overviewLine(appState.text("Identity", "身份"), appState.selfProfile.personaAnchor.identityStatement)
-                            overviewLine(appState.text("Tone", "语气"), appState.selfProfile.personaAnchor.tone)
-                            overviewLine(appState.text("Planning Style", "规划风格"), appState.selfProfile.personaAnchor.defaultPlanningStyle)
-                            overviewLine(appState.text("Autonomy", "自治方式"), appState.selfProfile.personaAnchor.autonomyPreference)
-                        }
-                    }
-                    GlassPanel(title: appState.text("Session Runtime", "会话运行时")) {
-                        VStack(alignment: .leading, spacing: 10) {
-                            TagCloud(items: appState.selfProfile.sessionContext.activeFocus, emptyText: appState.text("No active focus.", "当前没有焦点。"))
-                            TagCloud(items: appState.selfProfile.sessionContext.currentCommitments, emptyText: appState.text("No commitments.", "当前没有承诺。"))
-                        }
-                    }
-                }
-
-                HStack(alignment: .top, spacing: 16) {
-                    GlassPanel(title: appState.text("Recent Intake", "最近 Intake")) {
-                        if let intake = appState.latestIntakeResponse {
-                            VStack(alignment: .leading, spacing: 10) {
-                                overviewLine(appState.text("Intent", "意图"), appState.displayToken(intake.intent.intentType))
-                                overviewLine(appState.text("Goal", "目标"), intake.intent.goal)
-                                overviewLine(appState.text("Requested Outcome", "期望结果"), intake.cognition.understanding.requestedOutcome)
-                                overviewLine(appState.text("Time Horizon", "时间跨度"), intake.cognition.understanding.timeHorizon)
-                                overviewLine(appState.text("Mode", "模式"), appState.displayToken(intake.cognition.suggestedExecutionMode, category: .executionMode))
-                                overviewLine(appState.text("Next Step", "下一步"), intake.cognition.suggestedNextStep)
-                                if !intake.cognition.suggestedTaskTags.isEmpty {
-                                    TagCloud(items: intake.cognition.suggestedTaskTags, emptyText: appState.text("No tags.", "没有标签。"))
+                    SpotlightPanel(
+                        title: appState.text("Focus Lane", "焦点任务"),
+                        eyebrow: appState.text("Primary", "主视图"),
+                        accentA: Brand.active,
+                        accentB: Brand.action
+                    ) {
+                        if let task = focusTask {
+                            VStack(alignment: .leading, spacing: 14) {
+                                Text(task.objective)
+                                    .font(.title3.weight(.semibold))
+                                HStack {
+                                    StatusBadge(label: appState.displayToken(task.status, category: .taskStatus), color: Brand.active)
+                                    StatusBadge(label: appState.displayToken(task.executionMode, category: .executionMode), color: Brand.waiting)
                                 }
-                            }
-                        } else if let intent = appState.latestIntentEvaluation {
-                            VStack(alignment: .leading, spacing: 10) {
-                                overviewLine(appState.text("Intent", "意图"), appState.displayToken(intent.intentType))
-                                overviewLine(appState.text("Goal", "目标"), intent.goal)
-                                overviewLine(appState.text("Risk", "风险"), appState.displayToken(intent.riskLevel, category: .riskLevel))
-                                overviewLine(appState.text("Rationale", "理由"), intent.rationale)
-                            }
-                        } else {
-                            Text(appState.text("No intake activity yet.", "还没有 intake 活动。"))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-
-                    GlassPanel(title: appState.text("Scheduler Loop", "调度循环")) {
-                        if let result = appState.latestSchedulerResult {
-                            VStack(alignment: .leading, spacing: 10) {
-                                overviewLine(appState.text("Discovered", "发现"), "\(result.discoveredCount)")
-                                overviewLine(appState.text("Accepted", "接受"), "\(result.autoAcceptedCount)")
-                                overviewLine(appState.text("Started", "启动"), "\(result.autoStartedCount)")
-                                overviewLine(appState.text("Verified", "验证"), "\(result.autoVerifiedCount)")
-                                overviewLine(appState.text("Escalated", "升级"), "\(result.escalatedCount)")
-                            }
-                        } else {
-                            Text(appState.text("No scheduler run captured yet.", "还没有记录调度运行。"))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-
-                HStack(alignment: .top, spacing: 16) {
-                    GlassPanel(title: appState.text("Memory Snapshot", "记忆快照")) {
-                        if appState.memories.isEmpty {
-                            Text(appState.text("No memory records yet.", "还没有记忆记录。"))
-                                .foregroundStyle(.secondary)
-                        } else {
-                            VStack(alignment: .leading, spacing: 10) {
-                                ForEach(Array(appState.memories.prefix(3))) { memory in
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(memory.title)
-                                            .font(.headline)
-                                        Text(appState.displayToken(memory.memoryType, category: .memoryType))
-                                            .font(.caption)
-                                            .foregroundStyle(Brand.mint)
-                                        Text(memory.content)
-                                            .foregroundStyle(.secondary)
-                                            .lineLimit(2)
+                                Text(task.blockerReason?.isEmpty == false ? task.blockerReason! : appState.text("This is the newest active task in your loop. Open it to keep momentum.", "这是你当前循环中最新的活跃任务。打开它继续推进。"))
+                                    .foregroundStyle(.secondary)
+                                HStack {
+                                    Button(appState.text("Open Task", "打开任务")) {
+                                        Task { await appState.openTask(id: task.id) }
                                     }
-                                }
-                            }
-                        }
-                    }
-
-                    GlassPanel(title: appState.text("Capability Bus", "能力总线")) {
-                        if appState.capabilities.isEmpty {
-                            Text(appState.text("No capabilities loaded.", "还没有加载能力。"))
-                                .foregroundStyle(.secondary)
-                        } else {
-                            VStack(alignment: .leading, spacing: 10) {
-                                ForEach(appState.capabilities) { capability in
-                                    HStack(alignment: .top) {
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            Text(capability.name)
-                                                .font(.headline)
-                                            Text(capability.description)
-                                                .foregroundStyle(.secondary)
-                                                .lineLimit(2)
-                                            if !capability.scopes.isEmpty {
-                                                Text(capability.scopes.joined(separator: ", "))
-                                                    .font(.caption)
-                                                    .foregroundStyle(.secondary)
+                                    .buttonStyle(.borderedProminent)
+                                    if ["captured", "planned"].contains(task.status) {
+                                        Button(appState.text("Start Now", "立即开始")) {
+                                            Task {
+                                                await appState.openTask(id: task.id)
+                                                await appState.startTask(id: task.id)
                                             }
                                         }
-                                        Spacer()
-                                        StatusBadge(label: appState.displayToken(capability.riskLevel, category: .riskLevel), color: capabilityRiskColor(capability.riskLevel))
                                     }
                                 }
+                            }
+                        } else {
+                            EmptyWorkspaceState(
+                                title: appState.text("No Active Focus", "当前没有活跃焦点"),
+                                detail: appState.text("Create a task or start a new conversation to put something in motion.", "创建一个任务，或者发起一段新对话，让系统进入工作状态。")
+                            )
+                        }
+                    }
+
+                    GlassPanel(title: appState.text("Quick Start", "快速开始")) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            QuickActionTile(
+                                title: appState.text("Capture a New Task", "记录一个新任务"),
+                                subtitle: appState.text("Jump straight into task creation with explicit success criteria.", "直接创建任务，并写清成功标准。"),
+                                accent: Brand.action
+                            ) {
+                                appState.isPresentingCreateTask = true
+                            }
+                            QuickActionTile(
+                                title: appState.text("Start A Conversation", "发起新对话"),
+                                subtitle: appState.text("Tell AI OS what you want and let it decide whether to advise, plan, or create work.", "直接告诉 AI OS 你想做什么，让它判断是给建议、出计划，还是生成任务。"),
+                                accent: Brand.active
+                            ) {
+                                appState.selectedDestination = .inbox
+                            }
+                            QuickActionTile(
+                                title: appState.text("Review Candidates", "查看候选事项"),
+                                subtitle: appState.text("See reminders and follow-up work waiting for a decision.", "查看提醒和等待决策的跟进事项。"),
+                                accent: Brand.waiting
+                            ) {
+                                appState.selectedDestination = .candidates
                             }
                         }
                     }
                 }
 
                 HStack(alignment: .top, spacing: 16) {
-                    GlassPanel(title: appState.text("Goal Graph", "目标图谱")) {
-                        if appState.goals.isEmpty {
-                            Text(appState.text("No structured goals yet.", "还没有结构化目标。"))
-                                .foregroundStyle(.secondary)
+                    GlassPanel(title: appState.text("Next Actions", "下一步")) {
+                        if readyTasks.isEmpty {
+                            EmptyWorkspaceState(
+                                title: appState.text("Nothing Ready Yet", "还没有可立即开始的任务"),
+                                detail: appState.text("Use the conversation page or create a task to seed the next action queue.", "用对话页或新建任务来填充下一步队列。")
+                            )
                         } else {
                             VStack(alignment: .leading, spacing: 10) {
-                                ForEach(Array(appState.goals.prefix(4))) { goal in
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(goal.title)
-                                            .font(.headline)
-                                        Text("\(appState.displayToken(goal.kind)) • \(appState.displayToken(goal.status)) • \(Int(goal.progress * 100))%")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                        if !goal.successMetrics.isEmpty {
-                                            Text(goal.successMetrics.joined(separator: " · "))
-                                                .foregroundStyle(.secondary)
-                                                .lineLimit(2)
-                                        }
-                                    }
+                                ForEach(readyTasks.prefix(4)) { task in
+                                    CompactTaskLine(appState: appState, task: task)
                                 }
                             }
                         }
                     }
 
-                    GlassPanel(title: appState.text("Device Mesh", "设备网格")) {
-                        if appState.devices.isEmpty {
-                            Text(appState.text("No devices registered.", "还没有注册设备。"))
-                                .foregroundStyle(.secondary)
+                    GlassPanel(title: appState.text("Decision Queue", "待决事项")) {
+                        if dueReminders.isEmpty && appState.candidates.isEmpty {
+                            EmptyWorkspaceState(
+                                title: appState.text("No Pending Decisions", "当前没有待决事项"),
+                                detail: appState.text("When reminders or candidate tasks need your attention, they will surface here first.", "当提醒或候选事项需要你处理时，会优先显示在这里。")
+                            )
                         } else {
                             VStack(alignment: .leading, spacing: 10) {
-                                ForEach(appState.devices) { device in
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(device.name)
-                                            .font(.headline)
-                                        Text("\(appState.displayToken(device.deviceClass)) • \(appState.displayToken(device.status))")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                        if !device.capabilities.isEmpty {
-                                            Text(device.capabilities.joined(separator: ", "))
-                                                .foregroundStyle(.secondary)
-                                                .lineLimit(2)
-                                        }
+                                ForEach(Array(dueReminders.prefix(3))) { reminder in
+                                    Button {
+                                        appState.selectedDestination = .reminders
+                                        appState.selectReminder(id: reminder.id)
+                                    } label: {
+                                        CompactReminderLine(reminder: reminder)
                                     }
+                                    .buttonStyle(.plain)
                                 }
-                            }
-                        }
-                    }
-                }
-
-                HStack(alignment: .top, spacing: 16) {
-                    GlassPanel(title: appState.text("Task Flow", "任务流")) {
-                        if appState.taskStatusCounts.isEmpty {
-                            Text(appState.text("No tasks yet.", "还没有任务。"))
-                                .foregroundStyle(.secondary)
-                        } else {
-                            VStack(alignment: .leading, spacing: 10) {
-                                ForEach(appState.taskStatusCounts, id: \.0) { status, count in
+                                ForEach(Array(appState.candidates.prefix(2))) { candidate in
+                                    CompactCandidateDecisionLine(appState: appState, candidate: candidate)
+                                }
+                                if !appState.candidates.isEmpty {
                                     HStack {
-                                        Text(status.replacingOccurrences(of: "_", with: " ").capitalized)
                                         Spacer()
-                                        Text("\(count)")
-                                            .foregroundStyle(.secondary)
+                                        Button(appState.text("Open Candidate Desk", "打开候选事项页")) {
+                                            appState.selectedDestination = .candidates
+                                        }
+                                        .buttonStyle(.link)
                                     }
                                 }
                             }
                         }
                     }
+                }
 
-                    GlassPanel(title: appState.text("Memory Recall", "记忆召回")) {
+                HStack(alignment: .top, spacing: 16) {
+                    GlassPanel(title: appState.text("Memory Context", "记忆上下文")) {
                         if let recall = appState.latestMemoryRecall, !recall.items.isEmpty {
-                            VStack(alignment: .leading, spacing: 10) {
-                                ForEach(recall.items) { item in
+                            VStack(alignment: .leading, spacing: 12) {
+                                ForEach(recall.items.prefix(3)) { item in
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(item.title)
                                             .font(.headline)
-                                        Text("\(appState.displayToken(item.layer)) • \(Int(item.score * 100))%")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
                                         Text(item.reason)
                                             .foregroundStyle(.secondary)
                                             .lineLimit(2)
@@ -469,103 +428,86 @@ private struct OverviewView: View {
                                 }
                             }
                         } else {
-                            Text(appState.text("No recall snapshot available.", "当前没有召回快照。"))
+                            Text(appState.text("No memory recall snapshot yet.", "还没有记忆召回快照。"))
                                 .foregroundStyle(.secondary)
                         }
                     }
 
-                GlassPanel(title: appState.text("Recent Activity", "最近活动")) {
-                        if appState.events.isEmpty {
-                            Text(appState.text("No recent events.", "还没有最近事件。"))
+                    GlassPanel(title: appState.text("Personal Rhythm", "个人节奏")) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            overviewLine(appState.text("Current Phase", "当前阶段"), appState.selfProfile.currentPhase.capitalized)
+                            overviewLine(appState.text("Risk Style", "风险风格"), appState.selfProfile.riskStyle.capitalized)
+                            overviewLine(appState.text("Open Loops", "未完成事项"), "\(appState.selfProfile.sessionContext.openLoops.count)")
+                            overviewLine(appState.text("Current Commitments", "当前承诺"), "\(appState.selfProfile.sessionContext.currentCommitments.count)")
+                            overviewLine(appState.text("Active Goals", "活跃目标"), "\(activeGoalsCount)")
+                        }
+                    }
+
+                    GlassPanel(title: appState.text("Today Guidance", "今日建议")) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(todayGuidance)
                                 .foregroundStyle(.secondary)
-                        } else {
-                            VStack(alignment: .leading, spacing: 10) {
-                                ForEach(Array(appState.events.prefix(5))) { event in
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        HStack {
-                                            Text(event.eventType)
-                                                .font(.headline)
-                                            Spacer()
-                                            Text(event.createdAt.formatted(date: .omitted, time: .shortened))
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                        }
-                                        if let taskID = event.taskReferenceID {
-                                            Button(appState.text("Open Related Task", "打开关联任务")) {
-                                                Task { await appState.openTask(id: taskID) }
-                                            }
-                                            .buttonStyle(.link)
-                                        }
-                                        if let firstKey = event.payload.keys.sorted().first,
-                                           let value = event.payload[firstKey] {
-                                            Text("\(firstKey): \(value.displayText)")
-                                                .foregroundStyle(.secondary)
-                                                .lineLimit(2)
-                                        }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            if !appState.selfProfile.sessionContext.activeFocus.isEmpty {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text(appState.text("Session Focus", "当前关注"))
+                                        .font(.headline)
+                                    ForEach(appState.selfProfile.sessionContext.activeFocus.prefix(3), id: \.self) { focus in
+                                        Text("• \(focus)")
+                                            .frame(maxWidth: .infinity, alignment: .leading)
                                     }
                                 }
                             }
                         }
                     }
                 }
-
-                GlassPanel(title: appState.text("Local Backend", "本地后端")) {
-                    HStack {
-                        Text(processLabel)
-                        Spacer()
-                        if appState.backendProcessState == .running {
-                            Button(appState.text("Stop", "停止")) {
-                                appState.stopBackendProcess()
-                            }
-                        } else {
-                            Button(appState.text("Start", "启动")) {
-                                appState.startBackendProcess()
-                            }
-                            .buttonStyle(.borderedProminent)
-                        }
-                    }
-                }
             }
             .padding(28)
         }
-        .background(
-            Brand.dashboardGradient(for: colorScheme)
-        )
+        .background(Brand.dashboardGradient(for: colorScheme))
     }
 
-    private var backendLabel: String {
-        switch appState.backendStatus {
-        case .unknown:
-            return appState.text("Unknown", "未知")
-        case .connected:
-            return appState.text("Connected", "已连接")
-        case .disconnected:
-            return appState.text("Disconnected", "未连接")
-        }
+    private var sortedTasks: [TaskRecord] {
+        appState.tasks.sorted { $0.updatedAt > $1.updatedAt }
     }
 
-    private var backendAccent: Color {
-        switch appState.backendStatus {
-        case .unknown:
-            return .gray
-        case .connected:
-            return Brand.mint
-        case .disconnected:
-            return .red
-        }
+    private var readyTasks: [TaskRecord] {
+        sortedTasks.filter { ["captured", "planned"].contains($0.status) }
     }
 
-    private var processLabel: String {
-        switch appState.backendProcessState {
-        case .idle:
-            return appState.text("No local backend process running.", "当前没有本地后端进程运行。")
-        case .running:
-            return appState.text("Local backend process is running.", "本地后端进程正在运行。")
-        case .stopped(let code):
-            return appState.text("Local backend exited with code \(code).", "本地后端已退出，代码 \(code)。")
-        case .failed:
-            return appState.text("Local backend failed to start.", "本地后端启动失败。")
+    private var attentionTasks: [TaskRecord] {
+        sortedTasks.filter { ["blocked", "verifying"].contains($0.status) }
+    }
+
+    private var focusTask: TaskRecord? {
+        sortedTasks.first(where: { ["executing", "planned", "captured", "blocked", "verifying"].contains($0.status) })
+    }
+
+    private var dueReminders: [ReminderRecord] {
+        appState.reminders.sorted { $0.scheduledFor < $1.scheduledFor }
+    }
+
+    private var focusMetric: String {
+        focusTask.map { String($0.objective.prefix(18)) } ?? appState.text("No focus", "暂无焦点")
+    }
+
+    private var activeGoalsCount: Int {
+        appState.goals.filter { $0.status == "active" }.count
+    }
+
+    private var todayGuidance: String {
+        if let task = focusTask {
+            return task.blockerReason?.isEmpty == false
+                ? task.blockerReason!
+                : appState.text("Protect focus by moving the current task before opening too many new loops.", "先推进当前焦点任务，再避免同时打开过多新事项。")
         }
+        if !readyTasks.isEmpty {
+            return appState.text("You already have work that can start now. Pick one task and move it instead of opening new requests.", "你已经有可以立刻开始的工作了。先选一个推进，而不是继续打开新请求。")
+        }
+        if !appState.candidates.isEmpty || !dueReminders.isEmpty {
+            return appState.text("Your next move is probably in the decision queue. Clear reminders and candidate work before creating more.", "你的下一步很可能就在待决事项里。先清理提醒和候选项，再决定要不要新增工作。")
+        }
+        return appState.text("The workspace is clear. This is a good moment to capture a new request or define one focused task.", "当前工作台比较干净，适合录入一个新请求，或者定义一个明确的焦点任务。")
     }
 
     private func overviewLine(_ label: String, _ value: String) -> some View {
@@ -577,17 +519,6 @@ private struct OverviewView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
-
-    private func capabilityRiskColor(_ riskLevel: String) -> Color {
-        switch riskLevel {
-        case "high":
-            return .red
-        case "medium":
-            return Brand.amber
-        default:
-            return Brand.mint
-        }
-    }
 }
 
 private struct InboxWorkbenchView: View {
@@ -595,70 +526,163 @@ private struct InboxWorkbenchView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     private let promptTemplates = [
-        "Draft the first AI OS milestone plan and break it into concrete delivery steps.",
-        "Review the latest reminders and decide what needs action today.",
-        "Turn this rough idea into a tracked task with clear success criteria.",
-        "Analyze the risk of this request and suggest the safest next step."
+        "把这周最重要的 3 件事整理成任务，并指出今天必须推进的那一件。",
+        "帮我看一下今天有哪些提醒和待决事项需要先处理。",
+        "在日历中增加日程：今天下午 1 点进行产品评审。",
+        "判断这条需求的风险，并给出最稳妥的推进方式。"
     ]
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 BrandHero(
-                    eyebrow: appState.text("Intent Intake", "意图 Intake"),
-                    title: appState.text("Inbox Workbench", "收件箱工作台"),
-                    subtitle: appState.text("Capture a natural-language request, inspect governance and cognition, then push it into the task loop with one controlled action.", "输入自然语言请求，检查治理与认知结果，再通过一次受控操作推进到任务流。")
+                    eyebrow: appState.text("Assistant Conversation", "助理对话"),
+                    title: appState.text("Tell AI OS What You Need", "告诉 AI OS 你想做什么"),
+                    subtitle: appState.text("Write the request the way you would message a capable assistant. This page is for plans, reminders, decisions, and turning concrete asks into tracked work.", "像给一个靠谱助理发消息一样写需求。这里适合做规划、提提醒、帮你判断，或者把明确事项转成可追踪任务。")
                 )
 
-                composerPanel
-                actionRail
-                intakeStatusStrip
-                resultsColumn
+                dialoguePanel
+                guidanceStrip
+                outcomePanels
             }
             .padding(24)
         }
         .background(Brand.dashboardGradient(for: colorScheme))
     }
 
-    private var composerPanel: some View {
-        GlassPanel(title: appState.text("Request Composer", "请求编辑器")) {
+    private var dialoguePanel: some View {
+        SpotlightPanel(
+            title: appState.text("Request Composer", "需求输入区"),
+            eyebrow: appState.text("Step 1", "第 1 步"),
+            accentA: Brand.active,
+            accentB: Brand.action
+        ) {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(appState.text("Describe the request in one place.", "在这里完整描述请求。"))
+                        Text(appState.text("Describe the outcome in plain language.", "直接用自然语言写你想达成的结果。"))
                             .font(.title3.weight(.semibold))
-                        Text(appState.text("State the outcome, constraints, and urgency. This page should feel like drafting a work item, not filling a dashboard.", "写清目标、约束和紧急度。这个页面应该像起草工作项，而不是填写仪表盘。"))
+                        Text(appState.text("Good requests usually mention three things: what you want, what constraints matter, and whether it is urgent. AI OS will decide the right depth.", "好的需求一般包含三件事：你要什么、有哪些约束、这件事急不急。AI OS 会自己决定应该用多深的方式处理。"))
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Text("\(draftLength) chars")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
+                    InboxSignalPill(
+                        title: appState.text("Draft", "草稿"),
+                        value: "\(draftLength) \(appState.text("chars", "字"))",
+                        accent: Brand.ink
+                    )
                 }
 
-                TextEditor(text: $appState.inboxText)
-                    .font(.body)
-                    .frame(minHeight: 320)
-                    .padding(12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 20)
-                            .fill(Color.primary.opacity(colorScheme == .dark ? 0.08 : 0.035))
+                VStack(alignment: .leading, spacing: 12) {
+                    InboxMessageBubble(
+                        title: appState.text("You", "你"),
+                        bodyText: conversationDraftOrLastRequest,
+                        accent: Brand.ink,
+                        inverted: false,
+                        placeholder: conversationDraftOrLastRequest == appState.text("Ask for a plan, a decision, a reminder, a piece of work, or a safe recommendation.", "可以直接让它做规划、帮你判断、设置提醒、生成任务，或者给出稳妥建议。")
                     )
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 20)
-                            .stroke(Color.secondary.opacity(0.18), lineWidth: 1)
-                    }
 
-                HStack {
-                    Label(appState.text("Starting Points", "起始模板"), systemImage: "sparkles.rectangle.stack")
+                    if appState.latestIntakeResponse != nil || appState.latestIntentEvaluation != nil {
+                        InboxMessageBubble(
+                            title: appState.text("AI OS", "AI OS"),
+                            bodyText: conversationAssistantMessage,
+                            accent: Brand.mint,
+                            inverted: true,
+                            placeholder: false
+                        )
+                    }
+                }
+
+                ZStack(alignment: .topLeading) {
+                    TextEditor(text: $appState.inboxText)
+                        .font(.body)
+                        .frame(minHeight: 220)
+                        .padding(12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 20)
+                                .fill(Color.primary.opacity(colorScheme == .dark ? 0.08 : 0.035))
+                        )
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 20)
+                                .stroke(Color.secondary.opacity(0.18), lineWidth: 1)
+                        }
+
+                    if appState.inboxText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text(appState.text("例如：在日历中增加日程：今天下午 1 点进行产品评审。", "For example: add a calendar event for a product review at 1 PM today."))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 28)
+                            .padding(.top, 22)
+                            .allowsHitTesting(false)
+                    }
+                }
+
+                HStack(spacing: 10) {
+                    RequestStepBadge(
+                        index: "1",
+                        title: appState.text("Write", "写需求"),
+                        detail: appState.text("State the outcome.", "说明想要的结果。"),
+                        color: Brand.active
+                    )
+                    RequestStepBadge(
+                        index: "2",
+                        title: appState.text("Send", "发送"),
+                        detail: appState.text("AI OS takes over from here.", "从这里开始交给 AI OS。"),
+                        color: Brand.waiting
+                    )
+                    RequestStepBadge(
+                        index: "3",
+                        title: appState.text("Review", "看结果"),
+                        detail: appState.text("See the result or blocker.", "查看结果或阻塞点。"),
+                        color: Brand.action
+                    )
+                }
+
+                GlassPanel(title: appState.text("Submit Request", "提交需求")) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(appState.text("Default behavior is automatic. Send the request once, and AI OS will create, plan, execute, and verify work when it is safe to do so.", "默认就是自动推进。你只要发送一次需求，AI OS 会在安全前提下自动创建、规划、执行并验证任务。"))
+                            .foregroundStyle(.secondary)
+
+                        HStack(alignment: .top, spacing: 12) {
+                            inboxActionButton(
+                                title: appState.text("Quick Read", "快速理解"),
+                                subtitle: appState.text("Good for rough ideas, questions, and risk checks.", "适合模糊想法、咨询判断和风险检查。"),
+                                systemImage: "text.magnifyingglass",
+                                prominent: false,
+                                disabled: !appState.canEvaluateInbox
+                            ) {
+                                Task { await appState.evaluateInboxIntent() }
+                            }
+
+                            inboxActionButton(
+                                title: appState.text("Send Request", "发送需求"),
+                                subtitle: appState.text("AI OS will automatically turn this into actions and stop only when confirmation is genuinely needed.", "AI OS 会自动把这条需求推进成动作，只有真的需要确认时才会停下来。"),
+                                systemImage: "paperplane.fill",
+                                prominent: true,
+                                disabled: !appState.canProcessInbox
+                            ) {
+                                Task { await appState.processInbox() }
+                            }
+                        }
+
+                        HStack {
+                            Text(actionHint)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            if !appState.inboxText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                Button(appState.text("Clear", "清空")) {
+                                    appState.inboxText = ""
+                                }
+                                .buttonStyle(.link)
+                            }
+                        }
+                    }
+                }
+
+                HStack(alignment: .center) {
+                    Label(appState.text("Try One", "试试这些"), systemImage: "sparkles.rectangle.stack")
                         .font(.headline)
                     Spacer()
-                    if !appState.inboxText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Button(appState.text("Clear Draft", "清空草稿")) {
-                            appState.inboxText = ""
-                        }
-                        .buttonStyle(.link)
-                    }
                 }
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), spacing: 12)], spacing: 12) {
@@ -667,7 +691,7 @@ private struct InboxWorkbenchView: View {
                             appState.inboxText = template
                         } label: {
                             VStack(alignment: .leading, spacing: 8) {
-                                Text(appState.text("Template", "模板"))
+                                Text(appState.text("Starter", "起始提示"))
                                     .font(.caption.weight(.semibold))
                                     .foregroundStyle(Brand.mint)
                                 Text(template)
@@ -680,145 +704,109 @@ private struct InboxWorkbenchView: View {
                             .padding(14)
                             .background(
                                 RoundedRectangle(cornerRadius: 18)
-                                    .fill(Color.primary.opacity(colorScheme == .dark ? 0.05 : 0.025))
+                                    .fill(Color.primary.opacity(colorScheme == .dark ? 0.05 : 0.022))
                                     .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
                             )
                         }
                         .buttonStyle(.plain)
                     }
                 }
+
+                HStack {
+                    StatusBadge(label: appState.isProcessingInbox ? appState.text("Working", "处理中") : appState.text("Ready", "就绪"), color: appState.isProcessingInbox ? Brand.waiting : Brand.action)
+                    if let intent = appState.latestIntentEvaluation {
+                        StatusBadge(label: appState.displayToken(intent.riskLevel, category: .riskLevel), color: riskColor(intent.riskLevel))
+                    }
+                    if let intake = appState.latestIntakeResponse, intake.task != nil {
+                        StatusBadge(label: appState.text("Task Created", "已创建任务"), color: Brand.active)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
     }
 
-    private var actionRail: some View {
-        GlassPanel(title: appState.text("Action Rail", "操作区")) {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .top, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(appState.text("Run the intake in two stages.", "分两步运行 intake。"))
-                            .font(.title3.weight(.semibold))
-                        Text(actionHint)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    HStack {
-                        StatusBadge(label: appState.isProcessingInbox ? appState.text("Working", "处理中") : appState.text("Ready", "就绪"), color: appState.isProcessingInbox ? Brand.amber : Brand.mint)
-                        if let intent = appState.latestIntentEvaluation {
-                            StatusBadge(label: appState.displayToken(intent.riskLevel, category: .riskLevel), color: riskColor(intent.riskLevel))
-                        }
-                        if let intake = appState.latestIntakeResponse, intake.task != nil {
-                            StatusBadge(label: appState.text("Task Created", "已创建任务"), color: Brand.pine)
-                        }
-                    }
-                }
-
-                HStack(alignment: .top, spacing: 12) {
-                    inboxActionButton(
-                        title: appState.text("Evaluate Intent", "评估意图"),
-                        subtitle: appState.text("Lightweight governance and intent pass.", "先做一轮轻量治理和意图分析。"),
-                        systemImage: "waveform.badge.magnifyingglass",
-                        prominent: false,
-                        disabled: !appState.canEvaluateInbox
-                    ) {
-                        Task { await appState.evaluateInboxIntent() }
-                    }
-
-                    inboxActionButton(
-                        title: appState.text("Process Into Task Loop", "处理并进入任务流"),
-                        subtitle: appState.text("Run full intake and create work when appropriate.", "执行完整 intake，并在合适时生成任务。"),
-                        systemImage: "arrow.triangle.branch",
-                        prominent: true,
-                        disabled: !appState.canProcessInbox
-                    ) {
-                        Task { await appState.processInbox() }
-                    }
-                }
-            }
-        }
-    }
-
-    private var intakeStatusStrip: some View {
+    private var guidanceStrip: some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 16)], spacing: 16) {
             InboxMiniCard(
-                title: appState.text("Intent", "意图"),
+                title: appState.text("AI Read", "AI 理解"),
                 value: appState.latestIntentEvaluation.map { appState.displayToken($0.intentType) } ?? appState.text("Pending", "待处理"),
-                detail: appState.latestIntentEvaluation?.goal ?? appState.text("Run Evaluate to classify the request.", "先运行评估来识别请求类型。"),
-                accent: Brand.pine
+                detail: appState.latestIntentEvaluation?.goal ?? appState.text("Run a quick read to understand what kind of ask this is.", "先轻读一次，看看这属于哪类请求。"),
+                accent: Brand.active
             )
             InboxMiniCard(
-                title: appState.text("Execution Mode", "执行模式"),
+                title: appState.text("Suggested Mode", "建议模式"),
                 value: appState.latestIntakeResponse.map { appState.displayToken($0.cognition.suggestedExecutionMode, category: .executionMode) } ?? appState.text("Unscored", "未评估"),
-                detail: appState.latestIntakeResponse?.cognition.suggestedNextStep ?? appState.text("Process the request to score execution.", "处理请求后会得到执行建议。"),
-                accent: Brand.amber
+                detail: conversationAssistantMessage,
+                accent: Brand.waiting
             )
             InboxMiniCard(
-                title: appState.text("Task Output", "任务输出"),
+                title: appState.text("Work Result", "工作结果"),
                 value: appState.latestIntakeResponse?.task == nil ? appState.text("No Task Yet", "尚未生成任务") : appState.text("Task Created", "已创建任务"),
-                detail: appState.latestIntakeResponse?.task?.objective ?? appState.text("A concrete request can materialize into tracked work.", "明确的请求可以转化为可追踪任务。"),
+                detail: appState.latestIntakeResponse?.task?.objective ?? appState.text("Concrete requests can be turned into tracked work automatically.", "足够明确的请求会自动转成任务。"),
                 accent: Brand.ink
             )
         }
     }
 
-    private var resultsColumn: some View {
+    private var outcomePanels: some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 16)], spacing: 16) {
-            GlassPanel(title: appState.text("Intent Snapshot", "意图快照")) {
+            GlassPanel(title: appState.text("What AI OS Understood", "AI OS 的理解")) {
                 if let intent = appState.latestIntentEvaluation {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
-                            StatusBadge(label: appState.displayToken(intent.intentType), color: Brand.pine)
-                            StatusBadge(label: "Urgency \(intent.urgency)", color: Brand.amber)
+                            StatusBadge(label: appState.displayToken(intent.intentType), color: Brand.active)
+                            StatusBadge(label: "Urgency \(intent.urgency)", color: Brand.waiting)
                             if intent.needsConfirmation {
-                                StatusBadge(label: appState.text("Needs Confirmation", "需要确认"), color: .red)
+                                StatusBadge(label: appState.text("Needs Confirmation", "需要确认"), color: Brand.danger)
                             }
                         }
-                        inboxLine(appState.text("Goal", "目标"), intent.goal)
-                        inboxLine(appState.text("Risk", "风险"), appState.displayToken(intent.riskLevel, category: .riskLevel))
-                        inboxLine(appState.text("Rationale", "理由"), intent.rationale)
+                        inboxLine(appState.text("Main Goal", "核心目标"), intent.goal)
+                        inboxLine(appState.text("Risk Level", "风险等级"), appState.displayToken(intent.riskLevel, category: .riskLevel))
+                        inboxLine(appState.text("Why It Read It This Way", "这样理解的原因"), intent.rationale)
                         if !intent.relatedContextIDs.isEmpty {
-                            inboxTagSection(appState.text("Related Context", "关联上下文"), items: intent.relatedContextIDs, empty: appState.text("No related context.", "没有关联上下文。"))
+                            inboxTagSection(appState.text("Related Context", "相关上下文"), items: intent.relatedContextIDs, empty: appState.text("No related context.", "没有相关上下文。"))
                         }
                     }
                 } else {
                     inboxEmptyState(
-                        title: appState.text("No Intent Evaluation Yet", "还没有意图评估"),
-                        detail: appState.text("Run Evaluate to see intent type, urgency, and governance hints before committing to task creation.", "先运行评估，再决定是否进入任务创建。")
+                        title: appState.text("No AI Read Yet", "还没有 AI 理解结果"),
+                        detail: appState.text("Use the light read first when you want a fast sense of intent, urgency, and confirmation risk before creating work.", "如果你想先快速判断意图、紧急度和确认风险，就先做一次轻读。")
                     )
                 }
             }
 
-            GlassPanel(title: appState.text("Cognition", "认知结果")) {
+            GlassPanel(title: appState.text("Suggested Next Move", "建议下一步")) {
                 if let intake = appState.latestIntakeResponse {
                     VStack(alignment: .leading, spacing: 14) {
                         inboxLine(appState.text("Execution Mode", "执行模式"), appState.displayToken(intake.cognition.suggestedExecutionMode, category: .executionMode))
-                        inboxLine(appState.text("Next Step", "下一步"), intake.cognition.suggestedNextStep)
+                        inboxLine(appState.text("Recommended Move", "推荐动作"), conversationAssistantMessage)
                         inboxLine(appState.text("Cost Note", "成本说明"), intake.cognition.commonsense.costNote)
                         inboxLine(appState.text("Strategic Position", "战略位置"), intake.cognition.insight.strategicPosition)
-                        inboxLine(appState.text("Action Mode", "行动模式"), intake.cognition.courage.actionMode)
-                        inboxLine(appState.text("Courage Rationale", "行动理由"), intake.cognition.courage.rationale)
+                        inboxLine(appState.text("Action Style", "行动风格"), intake.cognition.courage.actionMode)
+                        inboxLine(appState.text("Why This Path", "为什么走这条路"), intake.cognition.courage.rationale)
 
                         if let betterPath = intake.cognition.insight.betterPath, !betterPath.isEmpty {
-                            inboxLine(appState.text("Better Path", "更优路径"), betterPath)
+                            inboxLine(appState.text("Alternative Path", "替代路径"), betterPath)
                         }
 
                         inboxTagSection(appState.text("Suggested Tags", "建议标签"), items: intake.cognition.suggestedTaskTags, empty: appState.text("No suggested tags.", "没有建议标签。"))
                         inboxTagSection(appState.text("Success Criteria", "成功标准"), items: intake.cognition.suggestedSuccessCriteria, empty: appState.text("No suggested success criteria.", "没有建议的成功标准。"))
                         inboxTagSection(
-                            appState.text("Execution Steps", "执行步骤"),
+                            appState.text("Planned Steps", "计划步骤"),
                             items: intake.cognition.suggestedExecutionPlan.steps.map { "\($0.capabilityName): \($0.action) - \($0.purpose)" },
                             empty: appState.text("No execution steps.", "没有执行步骤。")
                         )
                     }
                 } else {
                     inboxEmptyState(
-                        title: appState.text("No Intake Output Yet", "还没有 Intake 输出"),
-                        detail: appState.text("Run Process to generate cognition, execution guidance, and optionally a tracked task.", "运行处理后会生成认知结果、执行建议，以及可选的任务。")
+                        title: appState.text("No Full Processing Yet", "还没有完整处理结果"),
+                        detail: appState.text("Run the full path when you want a stronger recommendation, success criteria, and a real task if the ask is concrete enough.", "如果你想拿到更完整的建议、成功标准，以及在条件充分时直接落成任务，就运行完整处理。")
                     )
                 }
             }
 
-            GlassPanel(title: appState.text("Task Result", "任务结果")) {
+            GlassPanel(title: appState.text("Work Created For You", "为你生成的工作")) {
                 if let task = appState.latestIntakeResponse?.task {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(alignment: .top) {
@@ -830,7 +818,7 @@ private struct InboxWorkbenchView: View {
                                     .foregroundStyle(.secondary)
                             }
                             Spacer()
-                            StatusBadge(label: appState.displayToken(task.status, category: .taskStatus), color: Brand.mint)
+                            StatusBadge(label: appState.displayToken(task.status, category: .taskStatus), color: Brand.action)
                         }
                         inboxLine(appState.text("Risk", "风险"), appState.displayToken(task.riskLevel, category: .riskLevel))
                         inboxLine(appState.text("Execution Mode", "执行模式"), appState.displayToken(task.executionMode, category: .executionMode))
@@ -847,8 +835,8 @@ private struct InboxWorkbenchView: View {
                     }
                 } else {
                     inboxEmptyState(
-                        title: appState.text("Nothing Materialized Yet", "尚未生成结果"),
-                        detail: appState.text("The current inbox draft has not produced a task. Evaluate first or process a more concrete request.", "当前草稿还没有生成任务。可以先评估，或者输入更具体的请求。")
+                        title: appState.text("No Task Yet", "还没有生成任务"),
+                        detail: appState.text("Not every request should become tracked work. Keep it lightweight for quick advice, or make the ask more concrete and process again.", "不是每条请求都应该变成任务。你可以先把它当成轻量咨询，也可以把请求写得更具体再处理一次。")
                     )
                 }
             }
@@ -899,14 +887,50 @@ private struct InboxWorkbenchView: View {
         )
     }
 
+    private var conversationDraftOrLastRequest: String {
+        let trimmedDraft = appState.inboxText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedDraft.isEmpty {
+            return trimmedDraft
+        }
+        let submitted = appState.lastSubmittedConversationText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !submitted.isEmpty {
+            return submitted
+        }
+        return appState.text("Ask for a plan, a decision, a reminder, a piece of work, or a safe recommendation.", "可以直接让它做规划、帮你判断、设置提醒、生成任务，或者给出稳妥建议。")
+    }
+
+    private var conversationAssistantMessage: String {
+        if let task = appState.latestIntakeResponse?.task {
+            switch task.status {
+            case "done":
+                switch task.executionMode {
+                case "calendar_event":
+                    return appState.text("AI OS has already placed this on your calendar. You can review the created task and schedule on the right.", "AI OS 已经把这件事放进日历了。你可以在右侧查看生成的任务和时间安排。")
+                case "reminder":
+                    return appState.text("AI OS has created the reminder and completed the request.", "AI OS 已经创建提醒并完成这条需求。")
+                default:
+                    return appState.text("AI OS has completed this request. You can review the result on the right.", "AI OS 已经完成这条需求。你可以在右侧查看结果。")
+                }
+            case "blocked":
+                return appState.text("AI OS has taken over, but it still needs your confirmation or review before continuing.", "AI OS 已经接手，但继续前还需要你的确认或复核。")
+            default:
+                return appState.text("AI OS has taken over this request and is still moving it forward.", "AI OS 已经接手这条需求，并正在继续推进。")
+            }
+        }
+        if let intent = appState.latestIntentEvaluation {
+            return intent.rationale
+        }
+        return appState.text("AI OS will summarize what it understood here after you send the request.", "发送后，AI OS 会在这里说明它理解到的内容。")
+    }
+
     private var actionHint: String {
         if appState.inboxText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return appState.text("Start with a concrete request. A good inbox item names the outcome, the boundary, and the urgency.", "先写一个具体请求。好的 inbox 输入应该包含目标、边界和紧急度。")
+            return appState.text("Start with one concrete ask. Name the outcome, any boundary, and whether it matters today.", "先写一个具体请求，说明结果、边界，以及是不是今天就要推进。")
         }
         if appState.latestIntakeResponse?.task != nil {
-            return appState.text("This draft has already produced a task. You can reopen it or refine the request and process again.", "这个草稿已经生成任务。你可以重新打开它，或继续调整请求后再次处理。")
+            return appState.text("This request already ran through the workflow. Review the result below, or refine the request and send it again.", "这条请求已经走过自动流程。你可以直接看下面的结果，或者改写后重新发送。")
         }
-        return appState.text("Evaluate is the lightweight pass. Process runs the full intake flow and may create a tracked task.", "评估是轻量分析，处理会执行完整 intake，并可能生成可追踪任务。")
+        return appState.text("Send Request is the default path. AI OS will auto-run the workflow and stop only for real confirmation or policy blockers.", "发送需求是默认路径。AI OS 会自动跑完整流程，只有遇到真实确认或策略阻塞时才会停下。")
     }
 
     private var draftLength: Int {
@@ -916,11 +940,11 @@ private struct InboxWorkbenchView: View {
     private func riskColor(_ riskLevel: String) -> Color {
         switch riskLevel {
         case "high":
-            return .red
+            return Brand.danger
         case "medium":
-            return Brand.amber
+            return Brand.waiting
         default:
-            return Brand.mint
+            return Brand.action
         }
     }
 
@@ -964,6 +988,96 @@ private struct InboxWorkbenchView: View {
     }
 }
 
+private struct InboxMessageBubble: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let title: String
+    let bodyText: String
+    let accent: Color
+    let inverted: Bool
+    let placeholder: Bool
+
+    var body: some View {
+        HStack {
+            if inverted { Spacer(minLength: 48) }
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(inverted ? .white.opacity(0.8) : accent)
+                Text(bodyText)
+                    .foregroundStyle(inverted ? .white : (placeholder ? .secondary : .primary))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(16)
+            .frame(maxWidth: 620, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(
+                        inverted
+                            ? AnyShapeStyle(accent.gradient)
+                            : AnyShapeStyle(Color.primary.opacity(colorScheme == .dark ? 0.06 : 0.028))
+                    )
+                    .stroke(inverted ? Color.clear : Color.secondary.opacity(0.14), lineWidth: 1)
+            )
+            if !inverted { Spacer(minLength: 48) }
+        }
+    }
+}
+
+private struct InboxSignalPill: View {
+    let title: String
+    let value: String
+    let accent: Color
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 2) {
+            Text(title)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(accent)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(
+            Capsule(style: .continuous)
+                .fill(accent.opacity(0.12))
+        )
+    }
+}
+
+private struct RequestStepBadge: View {
+    let index: String
+    let title: String
+    let detail: String
+    let color: Color
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text(index)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.white)
+                .frame(width: 22, height: 22)
+                .background(Circle().fill(color))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(color.opacity(0.08))
+        )
+    }
+}
+
 private struct InboxMiniCard: View {
     @Environment(\.colorScheme) private var colorScheme
     let title: String
@@ -999,50 +1113,337 @@ private struct InboxMiniCard: View {
     }
 }
 
-private struct MemoryListView: View {
-    @ObservedObject var appState: AppState
+private struct EmptyWorkspaceState: View {
+    let title: String
+    let detail: String
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text(appState.text("Memory", "记忆"))
-                    .font(.title2.weight(.semibold))
-                Spacer()
-                if appState.backendStatus == .disconnected {
-                    Button(appState.text("Retry", "重试")) {
-                        Task { await appState.startupProbe() }
-                    }
-                }
-                Button(appState.text("Refresh", "刷新")) {
-                    Task { await appState.reloadMemories() }
-                }
-            }
-            .padding(20)
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.headline)
+            Text(detail)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
 
-            List(
-                appState.memories,
-                selection: Binding(
-                    get: { appState.selectedMemoryID },
-                    set: { appState.selectMemory(id: $0) }
-                )
-            ) { memory in
-                MemoryRow(appState: appState, memory: memory)
-                    .tag(memory.id)
+private struct QuickActionTile: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let title: String
+    let subtitle: String
+    let accent: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 6) {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(accent.gradient)
+                    .frame(width: 38, height: 38)
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
             }
-            .listStyle(.inset)
-            .overlay {
-                if appState.memories.isEmpty && !appState.isLoading {
-                    ContentUnavailableView(
-                        appState.text("No Memory Yet", "还没有记忆"),
-                        systemImage: "brain",
-                        description: Text(appState.text("Reflection and captured memory will appear here.", "反思和已捕获的记忆会显示在这里。"))
-                    )
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Brand.panelFill(for: colorScheme))
+                    .stroke(Brand.panelStroke(for: colorScheme), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct CompactTaskLine: View {
+    @ObservedObject var appState: AppState
+    let task: TaskRecord
+
+    var body: some View {
+        Button {
+            Task { await appState.openTask(id: task.id) }
+        } label: {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(task.objective)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Text(task.updatedAt, style: .relative)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                StatusBadge(label: appState.displayToken(task.status, category: .taskStatus), color: Brand.pine)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct CompactReminderLine: View {
+    let reminder: ReminderRecord
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(reminder.title)
+                    .font(.headline)
+                Spacer()
+                Text(reminder.scheduledFor, style: .relative)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Text(reminder.dueHint)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+private struct CompactCandidateLine: View {
+    @ObservedObject var appState: AppState
+    let candidate: CandidateTask
+
+    var body: some View {
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(candidate.title)
+                    .font(.headline)
+                Text(candidate.detail)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            Spacer()
+            Button(appState.text("Review", "查看")) {
+                appState.selectedDestination = .candidates
+            }
+            .buttonStyle(.link)
+        }
+    }
+}
+
+private struct CompactCandidateDecisionLine: View {
+    @ObservedObject var appState: AppState
+    let candidate: CandidateTask
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(candidate.title)
+                    .font(.headline)
+                Text(candidate.detail)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                HStack {
+                    StatusBadge(label: appState.displayToken(candidate.kind, category: .candidateKind), color: Brand.pine)
+                    StatusBadge(label: "P\(candidate.priority)", color: Brand.amber)
+                }
+            }
+            Spacer()
+            Button(appState.text("Review", "处理")) {
+                appState.selectedDestination = .candidates
+            }
+            .buttonStyle(.bordered)
+        }
+    }
+}
+
+private struct MemoryWorkspaceCard: View {
+    @ObservedObject var appState: AppState
+    @Environment(\.colorScheme) private var colorScheme
+    let memory: MemoryRecord
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(memory.title)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Text(memory.createdAt, style: .relative)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                StatusBadge(label: appState.displayToken(memory.memoryType, category: .memoryType), color: Brand.pine)
+            }
+
+            Text(memory.content)
+                .foregroundStyle(.secondary)
+                .lineLimit(3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if !memory.tags.isEmpty {
+                FlowLayout(items: Array(memory.tags.prefix(4))) { tag in
+                    StatusBadge(label: tag, color: Brand.ink)
                 }
             }
         }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Brand.panelFill(for: colorScheme))
+                .stroke(Brand.panelStroke(for: colorScheme), lineWidth: 1)
+        )
+    }
+}
+
+private struct ReminderWorkspaceCard: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let reminder: ReminderRecord
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(reminder.title)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Text(reminder.scheduledFor, style: .relative)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if reminder.sourceTaskID != nil {
+                    StatusBadge(label: "task-linked", color: Brand.mint)
+                }
+            }
+
+            Text(reminder.dueHint)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if !reminder.note.isEmpty {
+                Text(reminder.note)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Brand.panelFill(for: colorScheme))
+                .stroke(Brand.panelStroke(for: colorScheme), lineWidth: 1)
+        )
+    }
+}
+
+private struct MemoryListView: View {
+    @ObservedObject var appState: AppState
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                BrandHero(
+                    eyebrow: appState.text("Context Layer", "上下文层"),
+                    title: appState.text("Memory Workspace", "记忆工作台"),
+                    subtitle: appState.text("Keep the context that matters close to execution. Memory should help you decide and act, not disappear into an archive.", "把真正影响执行的上下文放在手边。记忆应该帮助你判断和行动，而不是沉到归档深处。")
+                )
+
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 16)], spacing: 16) {
+                    MetricCard(title: appState.text("Total Memory", "总记忆"), value: "\(appState.memories.count)", accent: Brand.ink)
+                    MetricCard(title: appState.text("Reflections", "复盘"), value: "\(reflectionMemories.count)", accent: Brand.active)
+                    MetricCard(title: appState.text("Recent Captures", "最近记录"), value: "\(recentMemories.count)", accent: Brand.waiting)
+                    MetricCard(title: appState.text("Tagged Context", "带标签上下文"), value: "\(taggedMemoryCount)", accent: Brand.action)
+                }
+
+                GlassPanel(title: appState.text("Memory Actions", "记忆操作")) {
+                    HStack(alignment: .center, spacing: 12) {
+                        Text(appState.text("Use memory as live context for planning, reflection, and turning old context into new work.", "把记忆当成活的上下文，用于规划、复盘和从旧信息里提炼新任务。"))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        if appState.backendStatus == .disconnected {
+                            Button(appState.text("Retry", "重试")) {
+                                Task { await appState.startupProbe() }
+                            }
+                        }
+                        Button(appState.text("Refresh", "刷新")) {
+                            Task { await appState.reloadMemories() }
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                }
+
+                memorySection(
+                    title: appState.text("Recent Context", "最近上下文"),
+                    subtitle: appState.text("Fresh memory captures and reflections you may still need this week.", "这周仍可能用得上的最新记录和复盘。"),
+                    memories: recentMemories
+                )
+
+                memorySection(
+                    title: appState.text("Reflection Notes", "复盘笔记"),
+                    subtitle: appState.text("Lessons, reviews, and perspective that can shape the next move.", "能影响下一步判断的复盘、经验和视角。"),
+                    memories: reflectionMemories
+                )
+
+                memorySection(
+                    title: appState.text("Reference Library", "参考库"),
+                    subtitle: appState.text("Everything else that is stored and available when you need to reopen context.", "其他已经保存、需要时可以再打开的上下文。"),
+                    memories: libraryMemories
+                )
+            }
+        }
+        .background(Brand.dashboardGradient(for: colorScheme))
         .task {
             if appState.memories.isEmpty {
                 await appState.reloadMemories()
+            }
+        }
+    }
+
+    private var sortedMemories: [MemoryRecord] {
+        appState.memories.sorted { $0.createdAt > $1.createdAt }
+    }
+
+    private var recentMemories: [MemoryRecord] {
+        Array(sortedMemories.prefix(5))
+    }
+
+    private var reflectionMemories: [MemoryRecord] {
+        sortedMemories.filter { $0.memoryType == "reflection" || $0.memoryType == "review" }
+    }
+
+    private var libraryMemories: [MemoryRecord] {
+        sortedMemories.filter { !reflectionMemories.map(\.id).contains($0.id) }
+    }
+
+    private var taggedMemoryCount: Int {
+        appState.memories.filter { !$0.tags.isEmpty }.count
+    }
+
+    private func memorySection(title: String, subtitle: String, memories: [MemoryRecord]) -> some View {
+        GlassPanel(title: title) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(subtitle)
+                    .foregroundStyle(.secondary)
+                if memories.isEmpty {
+                    EmptyWorkspaceState(
+                        title: appState.text("No memory here yet", "这里还没有记忆"),
+                        detail: appState.text("Once AI OS captures reflections or context, they will show up here for reuse.", "当 AI OS 开始积累上下文和复盘时，这里会出现可复用内容。")
+                    )
+                } else {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(memories.prefix(5)) { memory in
+                            Button {
+                                appState.selectMemory(id: memory.id)
+                            } label: {
+                                MemoryWorkspaceCard(appState: appState, memory: memory)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
             }
         }
     }
@@ -1097,13 +1498,13 @@ private struct CapabilityListView: View {
     }
 }
 
-private struct ReminderOperationsView: View {
+private struct RuntimeListView: View {
     @ObservedObject var appState: AppState
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text(appState.text("Reminders", "提醒"))
+                Text(appState.text("Runtimes", "运行时"))
                     .font(.title2.weight(.semibold))
                 Spacer()
                 if appState.backendStatus == .disconnected {
@@ -1112,31 +1513,253 @@ private struct ReminderOperationsView: View {
                     }
                 }
                 Button(appState.text("Refresh", "刷新")) {
-                    Task { await appState.reloadReminders() }
+                    Task { await appState.reloadRuntimes() }
                 }
             }
             .padding(20)
 
             List(
-                appState.reminders,
+                appState.runtimes,
                 selection: Binding(
-                    get: { appState.selectedReminderID },
-                    set: { appState.selectReminder(id: $0) }
+                    get: { appState.selectedRuntimeName },
+                    set: { appState.selectRuntime(name: $0) }
                 )
-            ) { reminder in
-                ReminderRow(reminder: reminder)
-                    .tag(reminder.id)
+            ) { runtime in
+                RuntimeRow(appState: appState, runtime: runtime)
+                    .tag(runtime.name)
             }
             .listStyle(.inset)
             .overlay {
-                if appState.reminders.isEmpty && !appState.isLoading {
-                    ContentUnavailableView(appState.text("No Reminders", "还没有提醒"), systemImage: "bell.slash", description: Text(appState.text("Reminder operations will appear here once reminders are created.", "创建提醒后，相关操作会显示在这里。")))
+                if appState.runtimes.isEmpty && !appState.isLoading {
+                    ContentUnavailableView(
+                        appState.text("No Runtimes Loaded", "还没有加载运行时"),
+                        systemImage: "server.rack",
+                        description: Text(appState.backendStatus == .disconnected ? appState.text("Reconnect to the backend to inspect runtime adapters.", "重新连接后端以查看运行时适配器。") : appState.text("Runtime adapters will appear here once the backend reports them.", "后端返回运行时描述后会显示在这里。"))
+                    )
                 }
             }
         }
         .task {
+            if appState.runtimes.isEmpty {
+                await appState.reloadRuntimes()
+            }
+        }
+    }
+}
+
+private struct PluginListView: View {
+    @ObservedObject var appState: AppState
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text(appState.text("Plugins", "插件"))
+                    .font(.title2.weight(.semibold))
+                Spacer()
+                if appState.backendStatus == .disconnected {
+                    Button(appState.text("Retry", "重试")) {
+                        Task { await appState.startupProbe() }
+                    }
+                }
+                Button(appState.text("Refresh", "刷新")) {
+                    Task { await appState.reloadPlugins() }
+                }
+            }
+            .padding(20)
+
+            List(
+                appState.plugins,
+                selection: Binding(
+                    get: { appState.selectedPluginName },
+                    set: { appState.selectPlugin(name: $0) }
+                )
+            ) { plugin in
+                PluginRow(appState: appState, plugin: plugin)
+                    .tag(plugin.name)
+            }
+            .listStyle(.inset)
+            .overlay {
+                if appState.plugins.isEmpty && !appState.isLoading {
+                    ContentUnavailableView(
+                        appState.text("No Plugins Loaded", "还没有加载插件"),
+                        systemImage: "shippingbox",
+                        description: Text(appState.backendStatus == .disconnected ? appState.text("Reconnect to the backend to inspect plugin manifests.", "重新连接后端以查看插件清单。") : appState.text("Plugin manifests will appear here once the backend reports them.", "后端返回插件描述后会显示在这里。"))
+                    )
+                }
+            }
+        }
+        .task {
+            if appState.plugins.isEmpty {
+                await appState.reloadPlugins()
+            }
+        }
+    }
+}
+
+private struct WorkflowListView: View {
+    @ObservedObject var appState: AppState
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text(appState.text("Workflows", "工作流"))
+                    .font(.title2.weight(.semibold))
+                Spacer()
+                if appState.backendStatus == .disconnected {
+                    Button(appState.text("Retry", "重试")) {
+                        Task { await appState.startupProbe() }
+                    }
+                }
+                Button(appState.text("Refresh", "刷新")) {
+                    Task { await appState.reloadWorkflows() }
+                }
+            }
+            .padding(20)
+
+            List(
+                appState.workflows,
+                selection: Binding(
+                    get: { appState.selectedWorkflowName },
+                    set: { appState.selectWorkflow(name: $0) }
+                )
+            ) { workflow in
+                WorkflowRow(workflow: workflow)
+                    .tag(workflow.name)
+            }
+            .listStyle(.inset)
+            .overlay {
+                if appState.workflows.isEmpty && !appState.isLoading {
+                    ContentUnavailableView(
+                        appState.text("No Workflows Loaded", "还没有加载工作流"),
+                        systemImage: "point.3.connected.trianglepath.dotted",
+                        description: Text(appState.backendStatus == .disconnected ? appState.text("Reconnect to the backend to inspect workflow manifests.", "重新连接后端以查看工作流清单。") : appState.text("Workflow manifests will appear here once the backend reports them.", "后端返回工作流描述后会显示在这里。"))
+                    )
+                }
+            }
+        }
+        .task {
+            if appState.workflows.isEmpty {
+                await appState.reloadWorkflows()
+            }
+        }
+    }
+}
+
+private struct ReminderOperationsView: View {
+    @ObservedObject var appState: AppState
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                BrandHero(
+                    eyebrow: appState.text("Personal Ops", "个人节奏"),
+                    title: appState.text("Reminder Desk", "提醒桌面"),
+                    subtitle: appState.text("See what is coming up, what needs attention today, and create lightweight reminders without leaving the flow.", "查看接下来要发生什么、今天需要注意什么，并在不中断流程的情况下快速创建提醒。")
+                )
+
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 16)], spacing: 16) {
+                    MetricCard(title: appState.text("Total Reminders", "提醒总数"), value: "\(appState.reminders.count)", accent: Brand.ink)
+                    MetricCard(title: appState.text("Due Today", "今天到期"), value: "\(todayReminders.count)", accent: Brand.waiting)
+                    MetricCard(title: appState.text("Upcoming", "即将到来"), value: "\(upcomingReminders.count)", accent: Brand.active)
+                    MetricCard(title: appState.text("Linked To Tasks", "关联任务"), value: "\(linkedReminderCount)", accent: Brand.action)
+                }
+
+                GlassPanel(title: appState.text("Quick Reminder", "快速提醒")) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(appState.text("Capture a title, a short note, and a due hint. Use this for personal pacing, follow-ups, or time-based nudges.", "写下标题、简短备注和到期提示。适合个人节奏管理、跟进提醒和时间触发的提示。"))
+                            .foregroundStyle(.secondary)
+
+                        TextField(appState.text("Title", "标题"), text: $appState.reminderDraft.title)
+                            .textFieldStyle(.roundedBorder)
+                        TextField(appState.text("Note", "备注"), text: $appState.reminderDraft.note)
+                            .textFieldStyle(.roundedBorder)
+                        TextField(appState.text("Due Hint", "到期提示"), text: $appState.reminderDraft.dueHint)
+                            .textFieldStyle(.roundedBorder)
+
+                        HStack {
+                            if appState.backendStatus == .disconnected {
+                                Button(appState.text("Retry", "重试")) {
+                                    Task { await appState.startupProbe() }
+                                }
+                            }
+                            Button(appState.text("Refresh", "刷新")) {
+                                Task { await appState.reloadReminders() }
+                            }
+                            Spacer()
+                            Button(appState.text("Create Reminder", "创建提醒")) {
+                                Task { await appState.createReminder() }
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
+                    }
+                }
+
+                reminderSection(
+                    title: appState.text("Due Today", "今天到期"),
+                    subtitle: appState.text("Things that should stay visible today.", "今天不应该被忽略的提醒。"),
+                    reminders: todayReminders
+                )
+
+                reminderSection(
+                    title: appState.text("Upcoming", "接下来"),
+                    subtitle: appState.text("Scheduled reminders that are approaching soon.", "接下来会很快到来的计划提醒。"),
+                    reminders: upcomingReminders
+                )
+
+                reminderSection(
+                    title: appState.text("All Reminders", "全部提醒"),
+                    subtitle: appState.text("The full reminder list, including slower-burn follow-ups.", "完整提醒列表，包括节奏更慢的后续事项。"),
+                    reminders: sortedReminders
+                )
+            }
+        }
+        .background(Brand.dashboardGradient(for: colorScheme))
+        .task {
             if appState.reminders.isEmpty {
                 await appState.reloadReminders()
+            }
+        }
+    }
+
+    private var sortedReminders: [ReminderRecord] {
+        appState.reminders.sorted { $0.scheduledFor < $1.scheduledFor }
+    }
+
+    private var todayReminders: [ReminderRecord] {
+        sortedReminders.filter { Calendar.current.isDateInToday($0.scheduledFor) }
+    }
+
+    private var upcomingReminders: [ReminderRecord] {
+        sortedReminders.filter { !Calendar.current.isDateInToday($0.scheduledFor) }.prefix(5).map { $0 }
+    }
+
+    private var linkedReminderCount: Int {
+        appState.reminders.filter { $0.sourceTaskID != nil }.count
+    }
+
+    private func reminderSection(title: String, subtitle: String, reminders: [ReminderRecord]) -> some View {
+        GlassPanel(title: title) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(subtitle)
+                    .foregroundStyle(.secondary)
+                if reminders.isEmpty {
+                    EmptyWorkspaceState(
+                        title: appState.text("No reminders here", "这里没有提醒"),
+                        detail: appState.text("Create one above or wait for task-linked reminders to appear here automatically.", "可以在上方手动创建，也可以等待任务相关提醒自动出现在这里。")
+                    )
+                } else {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(reminders.prefix(6)) { reminder in
+                            Button {
+                                appState.selectReminder(id: reminder.id)
+                            } label: {
+                                ReminderWorkspaceCard(reminder: reminder)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
             }
         }
     }
@@ -1144,62 +1767,136 @@ private struct ReminderOperationsView: View {
 
 private struct TaskListView: View {
     @ObservedObject var appState: AppState
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text(appState.text("Tasks", "任务"))
-                    .font(.title2.weight(.semibold))
-                Spacer()
-                if appState.autoRefreshEnabled {
-                    Label(appState.text("Auto \(appState.refreshIntervalSeconds)s", "自动 \(appState.refreshIntervalSeconds) 秒"), systemImage: "arrow.triangle.2.circlepath")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                BrandHero(
+                    eyebrow: appState.text("Execution Queue", "执行队列"),
+                    title: appState.text("Task Workspace", "任务工作区"),
+                    subtitle: appState.text("Keep active work moving, surface blocked items early, and avoid burying the next action in an admin list.", "保持活跃任务流动，尽早暴露阻塞项，不要把下一步埋在后台列表里。")
+                )
+
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 16)], spacing: 16) {
+                    MetricCard(title: appState.text("Ready To Start", "可开始"), value: "\(readyTasks.count)", accent: Brand.action)
+                    MetricCard(title: appState.text("In Motion", "进行中"), value: "\(inMotionTasks.count)", accent: Brand.active)
+                    MetricCard(title: appState.text("Needs Attention", "待处理"), value: "\(attentionTasks.count)", accent: Brand.waiting)
+                    MetricCard(title: appState.text("Done Recently", "最近完成"), value: "\(completedTasks.count)", accent: Brand.reference)
                 }
-                if appState.backendStatus == .disconnected {
-                    Button(appState.text("Retry", "重试")) {
-                        Task { await appState.startupProbe() }
+
+                SpotlightPanel(
+                    title: appState.text("Task Actions", "任务操作"),
+                    eyebrow: appState.text("Control", "操作"),
+                    accentA: Brand.waiting,
+                    accentB: Brand.reference
+                ) {
+                    HStack(alignment: .center, spacing: 12) {
+                        if appState.autoRefreshEnabled {
+                            Label(appState.text("Auto \(appState.refreshIntervalSeconds)s", "自动 \(appState.refreshIntervalSeconds) 秒"), systemImage: "arrow.triangle.2.circlepath")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if appState.backendStatus == .disconnected {
+                            Button(appState.text("Retry", "重试")) {
+                                Task { await appState.startupProbe() }
+                            }
+                        }
+                        Button(appState.text("Verify", "验证")) {
+                            appState.isPresentingVerifySheet = true
+                        }
+                        .disabled(!appState.canVerifySelectedTask)
+                        Button(appState.text("Confirm", "确认")) {
+                            appState.isPresentingConfirmSheet = true
+                        }
+                        .disabled(!appState.canConfirmSelectedTask)
+                        Button(appState.text("Reflect", "复盘")) {
+                            appState.isPresentingReflectSheet = true
+                        }
+                        .disabled(!appState.canReflectSelectedTask)
+                        Button(appState.text("Plan", "规划")) {
+                            Task { await appState.planSelectedTask() }
+                        }
+                        .disabled(!appState.canPlanSelectedTask)
+                        Button(appState.text("Start", "开始")) {
+                            Task { await appState.startSelectedTask() }
+                        }
+                        .disabled(!appState.canStartSelectedTask)
+                        .buttonStyle(.borderedProminent)
                     }
                 }
-                Button(appState.text("Verify", "验证")) {
-                    appState.isPresentingVerifySheet = true
-                }
-                .disabled(!appState.canVerifySelectedTask)
 
-                Button(appState.text("Confirm", "确认")) {
-                    appState.isPresentingConfirmSheet = true
-                }
-                .disabled(!appState.canConfirmSelectedTask)
-
-                Button(appState.text("Reflect", "复盘")) {
-                    appState.isPresentingReflectSheet = true
-                }
-                .disabled(!appState.canReflectSelectedTask)
-
-                Button(appState.text("Plan", "规划")) {
-                    Task { await appState.planSelectedTask() }
-                }
-                .disabled(!appState.canPlanSelectedTask)
-
-                Button(appState.text("Start", "开始")) {
-                    Task { await appState.startSelectedTask() }
-                }
-                .disabled(!appState.canStartSelectedTask)
-                .buttonStyle(.borderedProminent)
-            }
-            .padding(20)
-
-            List(
-                appState.tasks,
-                selection: Binding(
-                    get: { appState.selectedTaskID },
-                    set: { appState.selectTask(id: $0) }
+                taskSection(
+                    title: appState.text("Ready Now", "现在可做"),
+                    subtitle: appState.text("Captured and planned tasks that can be moved immediately.", "已经捕获或规划完成，可以立刻推进的任务。"),
+                    tasks: readyTasks
                 )
-            ) { task in
-                TaskRow(appState: appState, task: task)
-                    .tag(task.id)
+
+                taskSection(
+                    title: appState.text("In Motion", "进行中"),
+                    subtitle: appState.text("Execution and verification work currently underway.", "当前正在执行或验证中的任务。"),
+                    tasks: inMotionTasks
+                )
+
+                taskSection(
+                    title: appState.text("Needs Attention", "需要处理"),
+                    subtitle: appState.text("Blocked or waiting items that should not disappear from view.", "被阻塞或等待确认的任务，不应该被埋没。"),
+                    tasks: attentionTasks
+                )
+
+                taskSection(
+                    title: appState.text("Done Recently", "最近完成"),
+                    subtitle: appState.text("Recently closed work for quick review and reflection.", "最近关闭的工作项，适合快速回看和复盘。"),
+                    tasks: completedTasks
+                )
             }
-            .listStyle(.inset)
+            .padding(24)
+        }
+        .background(Brand.dashboardGradient(for: colorScheme))
+    }
+
+    private var sortedTasks: [TaskRecord] {
+        appState.tasks.sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    private var readyTasks: [TaskRecord] {
+        sortedTasks.filter { ["captured", "planned"].contains($0.status) }
+    }
+
+    private var inMotionTasks: [TaskRecord] {
+        sortedTasks.filter { ["executing", "verifying"].contains($0.status) }
+    }
+
+    private var attentionTasks: [TaskRecord] {
+        sortedTasks.filter { ["blocked"].contains($0.status) }
+    }
+
+    private var completedTasks: [TaskRecord] {
+        sortedTasks.filter { ["done"].contains($0.status) }
+    }
+
+    private func taskSection(title: String, subtitle: String, tasks: [TaskRecord]) -> some View {
+        GlassPanel(title: title) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(subtitle)
+                    .foregroundStyle(.secondary)
+                if tasks.isEmpty {
+                    Text(appState.text("Nothing here right now.", "这里暂时没有内容。"))
+                        .foregroundStyle(.secondary)
+                } else {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(tasks.prefix(5)) { task in
+                            Button {
+                                appState.selectTask(id: task.id)
+                            } label: {
+                                TaskWorkspaceCard(appState: appState, task: task)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -1221,17 +1918,41 @@ private struct MemoryDetailView: View {
                                 Text(memory.title)
                                     .font(.title2.weight(.semibold))
                                 HStack {
-                                    StatusBadge(label: appState.displayToken(memory.memoryType, category: .memoryType), color: Brand.pine)
-                                    StatusBadge(label: memory.createdAt.formatted(date: .abbreviated, time: .shortened), color: Brand.amber)
+                                    StatusBadge(label: appState.displayToken(memory.memoryType, category: .memoryType), color: Brand.reference)
+                                    StatusBadge(label: memory.createdAt.formatted(date: .abbreviated, time: .shortened), color: Brand.waiting)
                                 }
                             }
                             Spacer()
                         }
 
-                        GlassPanel(title: appState.text("Content", "内容")) {
+                        GlassPanel(title: appState.text("Memory Snapshot", "记忆摘要")) {
                             VStack(alignment: .leading, spacing: 12) {
-                                Text(memory.content)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                Text(
+                                    appState.text(
+                                        "Use this record as active context for the next move. You can turn it into work, review its links, or keep it as reference.",
+                                        "把这条记录当成下一步行动的上下文。你可以直接转成任务、查看它的关联，或把它作为参考保留。"
+                                    )
+                                )
+                                .foregroundStyle(.secondary)
+
+                                HStack(alignment: .top, spacing: 12) {
+                                    summaryPill(
+                                        title: appState.text("Type", "类型"),
+                                        value: appState.displayToken(memory.memoryType, category: .memoryType),
+                                        color: Brand.reference
+                                    )
+                                    summaryPill(
+                                        title: appState.text("Tags", "标签"),
+                                        value: "\(memory.tags.count)",
+                                        color: Brand.ink
+                                    )
+                                    summaryPill(
+                                        title: appState.text("Links", "关联"),
+                                        value: "\(relations.count)",
+                                        color: Brand.waiting
+                                    )
+                                }
+
                                 HStack {
                                     Spacer()
                                     Button(appState.text("Create Task From Memory", "从记忆创建任务")) {
@@ -1242,7 +1963,15 @@ private struct MemoryDetailView: View {
                                             riskLevel: "low"
                                         )
                                     }
+                                    .buttonStyle(.borderedProminent)
                                 }
+                            }
+                        }
+
+                        GlassPanel(title: appState.text("Memory Content", "记忆内容")) {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text(memory.content)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                             }
                         }
 
@@ -1316,6 +2045,23 @@ private struct MemoryDetailView: View {
             }
         }
     }
+
+    private func summaryPill(title: String, value: String, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.headline)
+                .foregroundStyle(color)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(color.opacity(0.10))
+        )
+    }
 }
 
 private struct CapabilityDetailView: View {
@@ -1340,6 +2086,33 @@ private struct CapabilityDetailView: View {
                         GlassPanel(title: appState.text("Description", "描述")) {
                             Text(capability.description)
                                 .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+
+                        GlassPanel(title: appState.text("Provided By Plugins", "来源插件")) {
+                            if appState.pluginsForSelectedCapability.isEmpty {
+                                Text(appState.text("No plugin bindings found.", "没有找到插件绑定。"))
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                FlowLayout(items: appState.pluginsForSelectedCapability) { plugin in
+                                    Button(action: {
+                                        Task { await appState.openPlugin(name: plugin.name) }
+                                    }) {
+                                        StatusBadge(label: plugin.name, color: Brand.ink)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+
+                        GlassPanel(title: appState.text("Recent Task Usage", "最近任务使用")) {
+                            RecentTaskUsageView(
+                                appState: appState,
+                                tasks: appState.capabilityUsage,
+                                emptyText: appState.text("No recent tasks used this capability.", "最近没有任务使用这个能力。"),
+                                openTask: { taskID in
+                                    Task { await appState.openTask(id: taskID) }
+                                }
+                            )
                         }
 
                         GlassPanel(title: appState.text("Execute", "执行")) {
@@ -1413,11 +2186,439 @@ private struct CapabilityDetailView: View {
     private func capabilityRiskColor(_ riskLevel: String) -> Color {
         switch riskLevel {
         case "high":
-            return .red
+            return Brand.danger
         case "medium":
-            return Brand.amber
+            return Brand.waiting
         default:
-            return Brand.mint
+            return Brand.action
+        }
+    }
+}
+
+private struct RuntimeDetailView: View {
+    @ObservedObject var appState: AppState
+
+    var body: some View {
+        Group {
+            if let runtime = appState.selectedRuntime {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        HStack(alignment: .top) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(runtime.name)
+                                    .font(.title2.weight(.semibold))
+                                HStack {
+                                    StatusBadge(label: appState.displayToken(runtime.status, category: .capabilityStatus), color: runtime.status == "available" ? Brand.action : Brand.waiting)
+                                    StatusBadge(label: runtime.runtimeType, color: Brand.reference)
+                                }
+                            }
+                            Spacer()
+                            Button(appState.text("Refresh", "刷新")) {
+                                Task { await appState.reloadRuntimes() }
+                            }
+                        }
+
+                        GlassPanel(title: appState.text("Description", "描述")) {
+                            Text(runtime.description)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+
+                        GlassPanel(title: appState.text("Runtime Root", "运行时根目录")) {
+                            Text(runtime.rootPath ?? appState.text("Unavailable", "不可用"))
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+
+                        GlassPanel(title: appState.text("Provided By Plugins", "来源插件")) {
+                            if appState.pluginsForSelectedRuntime.isEmpty {
+                                Text(appState.text("No plugin bindings found.", "没有找到插件绑定。"))
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                FlowLayout(items: appState.pluginsForSelectedRuntime) { plugin in
+                                    Button(action: {
+                                        Task { await appState.openPlugin(name: plugin.name) }
+                                    }) {
+                                        StatusBadge(label: plugin.name, color: Brand.ink)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+
+                        GlassPanel(title: appState.text("Recent Task Usage", "最近任务使用")) {
+                            RecentTaskUsageView(
+                                appState: appState,
+                                tasks: appState.runtimeUsage,
+                                emptyText: appState.text("No recent tasks selected this runtime.", "最近没有任务选择这个运行时。"),
+                                openTask: { taskID in
+                                    Task { await appState.openTask(id: taskID) }
+                                }
+                            )
+                        }
+
+                        if !runtime.supportedCapabilities.isEmpty {
+                            GlassPanel(title: appState.text("Supported Capabilities", "支持的能力")) {
+                                FlowLayout(items: runtime.supportedCapabilities) { capability in
+                                    StatusBadge(label: capability, color: Brand.pine)
+                                }
+                            }
+                        }
+
+                        if !runtime.notes.isEmpty {
+                            GlassPanel(title: appState.text("Notes", "说明")) {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    ForEach(runtime.notes, id: \.self) { note in
+                                        Text("• \(note)")
+                                            .foregroundStyle(.secondary)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                }
+                            }
+                        }
+
+                        GlassPanel(title: appState.text("Task Preview", "任务预览")) {
+                            VStack(alignment: .leading, spacing: 12) {
+                                if let task = appState.selectedTask {
+                                    Text(appState.text("Selected task", "当前任务") + ": \(task.objective)")
+                                        .font(.headline)
+                                } else {
+                                    Text(appState.text("Select a task to preview runtime preparation.", "请选择一个任务以预览运行时准备结果。"))
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                if let preview = appState.latestRuntimePreview, preview.runtime == runtime.name {
+                                    runtimeLine(appState.text("Command", "命令"), preview.commandPreview)
+                                    runtimeLine(appState.text("Workspace", "工作区"), preview.workspaceRoot)
+                                    runtimeLine(appState.text("Runtime Root", "运行时根目录"), preview.runtimeRoot)
+
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text(appState.text("Prompt Preview", "提示预览"))
+                                            .font(.headline)
+                                        Text(preview.promptPreview)
+                                            .font(.body.monospaced())
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .padding(12)
+                                            .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                                    }
+                                } else {
+                                    Text(appState.text("Runtime preview is unavailable for the current selection.", "当前选择没有可用的运行时预览。"))
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                if let invocation = appState.latestRuntimeInvocation, invocation.runtime == runtime.name {
+                                    Divider()
+                                    runtimeLine(appState.text("Launch Mode", "启动模式"), invocation.invocationMode)
+                                    runtimeLine(
+                                        appState.text("Working Directory", "工作目录"),
+                                        invocation.workingDirectory
+                                    )
+
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text(appState.text("Environment Hints", "环境提示"))
+                                            .font(.headline)
+                                        ForEach(invocation.environmentHints.keys.sorted(), id: \.self) { key in
+                                            Text("\(key)=\(invocation.environmentHints[key] ?? "")")
+                                                .font(.body.monospaced())
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                        }
+                                    }
+
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text(appState.text("Invocation Notes", "调用说明"))
+                                            .font(.headline)
+                                        ForEach(invocation.notes, id: \.self) { note in
+                                            Text("• \(note)")
+                                                .foregroundStyle(.secondary)
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                        }
+                                    }
+                                }
+
+                                HStack {
+                                    Spacer()
+                                    if let task = appState.selectedTask, appState.canStartSelectedTask {
+                                        Button(appState.text("Start Task", "执行任务")) {
+                                            Task { await appState.startTask(id: task.id) }
+                                        }
+                                        .buttonStyle(.bordered)
+                                    }
+                                    Button(appState.text("Reload Preview", "刷新预览")) {
+                                        Task { await appState.loadSelectedRuntimePreview() }
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                    .disabled(appState.selectedTask == nil)
+                                }
+                            }
+                        }
+                    }
+                    .padding(24)
+                }
+            } else if appState.isLoading {
+                ProgressView(appState.text("Loading runtimes…", "正在加载运行时…"))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ContentUnavailableView(appState.text("No Runtime Selected", "未选择运行时"), systemImage: "server.rack", description: Text(appState.text("Select a runtime from the list.", "请从列表中选择一个运行时。")))
+            }
+        }
+    }
+
+    private func runtimeLine(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.headline)
+            Text(value)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+private struct PluginDetailView: View {
+    @ObservedObject var appState: AppState
+
+    var body: some View {
+        Group {
+            if let plugin = appState.selectedPlugin {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        HStack(alignment: .top) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(plugin.name)
+                                    .font(.title2.weight(.semibold))
+                                HStack {
+                                    StatusBadge(label: plugin.version, color: Brand.reference)
+                                    StatusBadge(label: appState.displayToken(plugin.status, category: .capabilityStatus), color: plugin.status == "available" ? Brand.action : Brand.waiting)
+                                }
+                            }
+                            Spacer()
+                            Button(appState.text("Refresh", "刷新")) {
+                                Task { await appState.reloadPlugins() }
+                            }
+                        }
+
+                        GlassPanel(title: appState.text("Description", "描述")) {
+                            Text(plugin.description)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+
+                        GlassPanel(title: appState.text("Contributions", "贡献")) {
+                            VStack(alignment: .leading, spacing: 14) {
+                                pluginContributionSection(
+                                    title: appState.text("Runtimes", "运行时"),
+                                    items: plugin.runtimes,
+                                    emptyText: appState.text("No runtimes contributed.", "没有贡献运行时。"),
+                                    color: Brand.ink,
+                                    action: { item in
+                                        Task { await appState.openRuntime(name: item) }
+                                    }
+                                )
+                                pluginContributionSection(
+                                    title: appState.text("Capabilities", "能力"),
+                                    items: plugin.capabilities,
+                                    emptyText: appState.text("No capabilities contributed.", "没有贡献能力。"),
+                                    color: Brand.pine,
+                                    action: { item in
+                                        Task { await appState.openCapability(name: item) }
+                                    }
+                                )
+                                pluginContributionSection(
+                                    title: appState.text("Workflows", "工作流"),
+                                    items: plugin.workflows,
+                                    emptyText: appState.text("No workflows contributed.", "没有贡献工作流。"),
+                                    color: Brand.amber,
+                                    action: { item in
+                                        Task { await appState.openWorkflow(name: item) }
+                                    }
+                                )
+                            }
+                        }
+
+                        if !plugin.notes.isEmpty {
+                            GlassPanel(title: appState.text("Notes", "说明")) {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    ForEach(plugin.notes, id: \.self) { note in
+                                        Text("• \(note)")
+                                            .foregroundStyle(.secondary)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                }
+                            }
+                        }
+
+                        GlassPanel(title: appState.text("Recent Task Usage", "最近任务使用")) {
+                            RecentTaskUsageView(
+                                appState: appState,
+                                tasks: appState.pluginUsage,
+                                emptyText: appState.text("No recent tasks matched this plugin.", "最近没有任务命中这个插件。"),
+                                openTask: { taskID in
+                                    Task { await appState.openTask(id: taskID) }
+                                }
+                            )
+                        }
+                    }
+                    .padding(24)
+                }
+            } else if appState.isLoading {
+                ProgressView(appState.text("Loading plugins…", "正在加载插件…"))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ContentUnavailableView(appState.text("No Plugin Selected", "未选择插件"), systemImage: "shippingbox", description: Text(appState.text("Select a plugin from the list.", "请从列表中选择一个插件。")))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func pluginContributionSection(
+        title: String,
+        items: [String],
+        emptyText: String,
+        color: Color,
+        action: @escaping (String) -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.headline)
+            if items.isEmpty {
+                Text(emptyText)
+                    .foregroundStyle(.secondary)
+            } else {
+                FlowLayout(items: items) { item in
+                    Button(action: { action(item) }) {
+                        StatusBadge(label: item, color: color)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+}
+
+private struct RecentTaskUsageView: View {
+    @ObservedObject var appState: AppState
+    let tasks: [UsageTaskSummary]
+    let emptyText: String
+    let openTask: (String) -> Void
+
+    var body: some View {
+        if tasks.isEmpty {
+            Text(emptyText)
+                .foregroundStyle(.secondary)
+        } else {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(tasks) { task in
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(alignment: .top) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(task.objective)
+                                    .font(.headline)
+                                Text(task.id)
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            StatusBadge(label: appState.displayToken(task.status, category: .taskStatus), color: taskStatusColor(task.status))
+                        }
+                        HStack {
+                            Text(task.updatedAt, style: .relative)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button(appState.text("Open Task", "打开任务")) {
+                                openTask(task.id)
+                            }
+                            .buttonStyle(.link)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+    }
+
+    private func taskStatusColor(_ status: String) -> Color {
+        switch status {
+        case "done":
+            return Brand.action
+        case "blocked":
+            return Brand.danger
+        case "executing", "verifying":
+            return Brand.waiting
+        default:
+            return Brand.ink
+        }
+    }
+}
+
+private struct WorkflowDetailView: View {
+    @ObservedObject var appState: AppState
+
+    var body: some View {
+        Group {
+            if let workflow = appState.selectedWorkflow {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        HStack(alignment: .top) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(workflow.name)
+                                    .font(.title2.weight(.semibold))
+                                HStack {
+                                    StatusBadge(label: workflow.handler, color: Brand.reference)
+                                }
+                            }
+                            Spacer()
+                            Button(appState.text("Refresh", "刷新")) {
+                                Task { await appState.reloadWorkflows() }
+                            }
+                        }
+
+                        GlassPanel(title: appState.text("Description", "描述")) {
+                            Text(workflow.description)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+
+                        GlassPanel(title: appState.text("Entrypoint", "入口")) {
+                            Text(workflow.entrypoint)
+                                .font(.body.monospaced())
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+
+                        GlassPanel(title: appState.text("Tags", "标签")) {
+                            if workflow.tags.isEmpty {
+                                Text(appState.text("No workflow tags.", "没有工作流标签。"))
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                FlowLayout(items: workflow.tags) { tag in
+                                    StatusBadge(label: tag, color: Brand.amber)
+                                }
+                            }
+                        }
+
+                        GlassPanel(title: appState.text("Provided By Plugins", "来源插件")) {
+                            if appState.pluginsForSelectedWorkflow.isEmpty {
+                                Text(appState.text("No plugin bindings found.", "没有找到插件绑定。"))
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                FlowLayout(items: appState.pluginsForSelectedWorkflow) { plugin in
+                                    Button(action: {
+                                        Task { await appState.openPlugin(name: plugin.name) }
+                                    }) {
+                                        StatusBadge(label: plugin.name, color: Brand.ink)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                    }
+                    .padding(24)
+                }
+            } else if appState.isLoading {
+                ProgressView(appState.text("Loading workflows…", "正在加载工作流…"))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ContentUnavailableView(appState.text("No Workflow Selected", "未选择工作流"), systemImage: "point.3.connected.trianglepath.dotted", description: Text(appState.text("Select a workflow from the list.", "请从列表中选择一个工作流。")))
+            }
         }
     }
 }
@@ -1429,7 +2630,7 @@ private struct ReminderDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 if let result = appState.latestSchedulerResult {
-                    GlassPanel(title: appState.text("Scheduler Operations", "调度操作")) {
+                    GlassPanel(title: appState.text("Reminder Flow", "提醒流状态")) {
                         VStack(alignment: .leading, spacing: 10) {
                             schedulerLine(appState.text("Discovered", "发现"), "\(result.discoveredCount)")
                             schedulerLine(appState.text("Auto Accepted", "自动接受"), "\(result.autoAcceptedCount)")
@@ -1441,8 +2642,10 @@ private struct ReminderDetailView: View {
                     }
                 }
 
-                        GlassPanel(title: appState.text("Create Reminder", "创建提醒")) {
+                GlassPanel(title: appState.text("Quick Reminder", "快速提醒")) {
                     VStack(alignment: .leading, spacing: 12) {
+                        Text(appState.text("Capture a follow-up quickly without leaving the current context.", "不用离开当前页面，也可以快速记下一条后续提醒。"))
+                            .foregroundStyle(.secondary)
                         TextField(appState.text("Title", "标题"), text: $appState.reminderDraft.title)
                             .textFieldStyle(.roundedBorder)
                         TextField(appState.text("Note", "备注"), text: $appState.reminderDraft.note)
@@ -1461,13 +2664,32 @@ private struct ReminderDetailView: View {
                 }
 
                 if let reminder = appState.selectedReminder {
-                    GlassPanel(title: appState.text("Selected Reminder", "当前提醒")) {
+                    GlassPanel(title: appState.text("Reminder Snapshot", "提醒摘要")) {
                         VStack(alignment: .leading, spacing: 10) {
                             Text(reminder.title)
-                                .font(.headline)
-                            schedulerLine(appState.text("Due Hint", "到期提示"), reminder.dueHint)
-                            schedulerLine(appState.text("Scheduled For", "计划时间"), reminder.scheduledFor.formatted(date: .abbreviated, time: .shortened))
-                            schedulerLine(appState.text("Origin", "来源"), reminder.origin ?? "n/a")
+                                .font(.title3.weight(.semibold))
+
+                            Text(appState.text("This reminder is a pacing tool. You can acknowledge it, move it, turn it into work, or follow the task it came from.", "这条提醒是节奏管理工具。你可以确认它、重新安排、转成任务，或者回到它关联的原始任务。"))
+                                .foregroundStyle(.secondary)
+
+                            HStack(alignment: .top, spacing: 12) {
+                                reminderSummaryPill(
+                                    title: appState.text("Due Hint", "到期提示"),
+                                    value: reminder.dueHint,
+                                    color: Brand.waiting
+                                )
+                                reminderSummaryPill(
+                                    title: appState.text("Scheduled", "计划时间"),
+                                    value: reminder.scheduledFor.formatted(date: .abbreviated, time: .shortened),
+                                    color: Brand.pine
+                                )
+                                reminderSummaryPill(
+                                    title: appState.text("Origin", "来源"),
+                                    value: reminder.origin ?? "n/a",
+                                    color: Brand.ink
+                                )
+                            }
+
                             if let sourceTaskID = reminder.sourceTaskID {
                                 HStack {
                                     Text(appState.text("Source Task", "源任务"))
@@ -1477,18 +2699,18 @@ private struct ReminderDetailView: View {
                                     }
                                     .buttonStyle(.link)
                                 }
-                            } else {
-                                schedulerLine(appState.text("Source Task", "源任务"), "n/a")
                             }
                             if let lastSeenAt = reminder.lastSeenAt {
                                 schedulerLine(appState.text("Last Seen", "最近查看"), lastSeenAt.formatted(date: .abbreviated, time: .shortened))
                             }
-                            if !reminder.note.isEmpty {
-                                Text(reminder.note)
-                                    .foregroundStyle(.secondary)
-                            }
 
                             HStack {
+                                Button(appState.text("Mark Seen", "标记已读")) {
+                                    Task { await appState.markSelectedReminderSeen() }
+                                }
+                                Button(appState.text("Reschedule", "重新安排")) {
+                                    Task { await appState.rescheduleSelectedReminder() }
+                                }
                                 Spacer()
                                 Button(appState.text("Create Task From Reminder", "从提醒创建任务")) {
                                     appState.presentCreateTask(
@@ -1498,30 +2720,45 @@ private struct ReminderDetailView: View {
                                         riskLevel: "low"
                                     )
                                 }
+                                .buttonStyle(.borderedProminent)
                             }
+                        }
+                    }
 
-                            Divider()
+                    GlassPanel(title: appState.text("Reminder Note", "提醒备注")) {
+                        if reminder.note.isEmpty {
+                            Text(appState.text("No note attached to this reminder.", "这条提醒还没有备注。"))
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text(reminder.note)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+
+                    GlassPanel(title: appState.text("Adjust Timing", "调整时间")) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text(appState.text("Edit the due hint and reschedule when the current pacing no longer fits.", "当当前节奏不合适时，修改到期提示并重新安排。"))
+                                .foregroundStyle(.secondary)
 
                             TextField(appState.text("New Due Hint", "新的到期提示"), text: $appState.reminderDraft.dueHint)
                                 .textFieldStyle(.roundedBorder)
 
                             HStack {
-                                Button(appState.text("Mark Seen", "标记已读")) {
-                                    Task { await appState.markSelectedReminderSeen() }
-                                }
-                                Button(appState.text("Reschedule", "重新安排")) {
-                                    Task { await appState.rescheduleSelectedReminder() }
-                                }
                                 Button(appState.text("Delete", "删除")) {
                                     Task { await appState.deleteSelectedReminder() }
                                 }
-                                .foregroundStyle(.red)
+                                .foregroundStyle(Brand.danger)
+                                Spacer()
+                                Button(appState.text("Reschedule", "重新安排")) {
+                                    Task { await appState.rescheduleSelectedReminder() }
+                                }
+                                .buttonStyle(.borderedProminent)
                             }
                         }
                     }
                 } else {
-                    GlassPanel(title: appState.text("Selected Reminder", "当前提醒")) {
-                        Text(appState.text("Select a reminder from the list to inspect and operate on it.", "请从列表中选择一个提醒进行查看和操作。"))
+                    GlassPanel(title: appState.text("Reminder Detail", "提醒详情")) {
+                        Text(appState.text("Select a reminder from the workspace to inspect it and decide whether to acknowledge, reschedule, or turn it into work.", "请从工作台选择一条提醒，再决定是确认、重排还是转成任务。"))
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -1537,6 +2774,24 @@ private struct ReminderDetailView: View {
             Text(value)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    private func reminderSummaryPill(title: String, value: String, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.headline)
+                .foregroundStyle(color)
+                .lineLimit(2)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(color.opacity(0.10))
+        )
     }
 }
 
@@ -1846,39 +3101,53 @@ private struct SelfProfileView: View {
 
 private struct CandidateControlView: View {
     @ObservedObject var appState: AppState
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                HStack {
-                    BrandSectionTitle(
-                        title: appState.text("Candidates", "候选项"),
-                        subtitle: appState.text("Proactive next steps, scheduler output, and queue control.", "主动建议的下一步、调度输出和队列控制。")
-                    )
-                    Spacer()
-                    if appState.autoRefreshEnabled {
-                        Label(appState.text("Auto \(appState.refreshIntervalSeconds)s", "自动 \(appState.refreshIntervalSeconds) 秒"), systemImage: "clock.arrow.trianglehead.counterclockwise.rotate.90")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    if appState.backendStatus == .disconnected {
-                        Button(appState.text("Retry", "重试")) {
-                            Task { await appState.startupProbe() }
-                        }
-                    }
-                    Button(appState.text("Refresh", "刷新")) {
-                        Task { await appState.reloadCandidates() }
-                    }
-                    Button(appState.text("Auto Accept Eligible", "自动接受可处理项")) {
-                        Task { await appState.autoAcceptEligibleCandidates() }
-                    }
-                    Button(appState.text("Run Scheduler", "运行调度")) {
-                        Task { await appState.runSchedulerTick() }
-                    }
-                    .buttonStyle(.borderedProminent)
+                BrandHero(
+                    eyebrow: appState.text("Decision Support", "决策支持"),
+                    title: appState.text("Candidate Desk", "候选事项页"),
+                    subtitle: appState.text("Review proactive suggestions, decide what should turn into real work, and keep follow-up items from going stale.", "查看系统主动提出的建议，决定哪些应该转成正式任务，并防止后续事项长期搁置。")
+                )
+
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 16)], spacing: 16) {
+                    MetricCard(title: appState.text("Open Candidates", "当前候选"), value: "\(appState.candidates.count)", accent: Brand.active)
+                    MetricCard(title: appState.text("Auto Acceptable", "可自动接受"), value: "\(autoAcceptableCandidates)", accent: Brand.action)
+                    MetricCard(title: appState.text("Need Confirmation", "需要确认"), value: "\(needsConfirmationCandidates)", accent: Brand.waiting)
+                    MetricCard(title: appState.text("High Priority", "高优先级"), value: "\(highPriorityCandidates)", accent: Brand.reference)
                 }
 
-                GlassPanel(title: appState.text("Scheduler", "调度器")) {
+                GlassPanel(title: appState.text("Candidate Actions", "候选操作")) {
+                    HStack {
+                        Text(appState.text("Use this page to decide what should become tracked work now, what can wait, and what the scheduler should keep watching.", "在这里判断哪些应该立刻变成任务，哪些可以延后，以及哪些继续由调度器观察。"))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        if appState.autoRefreshEnabled {
+                            Label(appState.text("Auto \(appState.refreshIntervalSeconds)s", "自动 \(appState.refreshIntervalSeconds) 秒"), systemImage: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        if appState.backendStatus == .disconnected {
+                            Button(appState.text("Retry", "重试")) {
+                                Task { await appState.startupProbe() }
+                            }
+                        }
+                        Button(appState.text("Refresh", "刷新")) {
+                            Task { await appState.reloadCandidates() }
+                        }
+                        Button(appState.text("Auto Accept Eligible", "自动接受可处理项")) {
+                            Task { await appState.autoAcceptEligibleCandidates() }
+                        }
+                        Button(appState.text("Run Scheduler", "运行调度")) {
+                            Task { await appState.runSchedulerTick() }
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                }
+
+                GlassPanel(title: appState.text("Scheduler Tuning", "调度器设置")) {
                     HStack(spacing: 16) {
                         Stepper(appState.text("Candidate Limit: \(appState.schedulerDraft.candidateLimit)", "候选上限：\(appState.schedulerDraft.candidateLimit)"), value: $appState.schedulerDraft.candidateLimit, in: 1...100)
                         Stepper(appState.text("Stale After: \(appState.schedulerDraft.staleAfterMinutes)m", "停滞阈值：\(appState.schedulerDraft.staleAfterMinutes) 分钟"), value: $appState.schedulerDraft.staleAfterMinutes, in: 1...10080)
@@ -1887,7 +3156,7 @@ private struct CandidateControlView: View {
                 }
 
                 if let result = appState.latestSchedulerResult {
-                    GlassPanel(title: appState.text("Last Scheduler Tick", "最近一次调度")) {
+                    GlassPanel(title: appState.text("Latest Scheduler Pass", "最近一次调度结果")) {
                         VStack(alignment: .leading, spacing: 8) {
                             summaryLine(appState.text("Discovered", "发现"), "\(result.discoveredCount)")
                             summaryLine(appState.text("Auto Accepted", "自动接受"), "\(result.autoAcceptedCount)")
@@ -1900,48 +3169,32 @@ private struct CandidateControlView: View {
                     }
                 }
 
-                GlassPanel(title: appState.text("Candidate Queue", "候选队列")) {
+                candidateSection(
+                    title: appState.text("Review Now", "现在处理"),
+                    subtitle: appState.text("High-signal or high-priority items that should be decided first.", "信号最强或优先级最高、应该先做决定的事项。"),
+                    candidates: reviewNowCandidates
+                )
+
+                candidateSection(
+                    title: appState.text("Auto-Ready", "适合自动接受"),
+                    subtitle: appState.text("Candidates the system already believes are safe to accept automatically.", "系统已经认为可以安全自动接受的候选项。"),
+                    candidates: autoReadyCandidates
+                )
+
+                candidateSection(
+                    title: appState.text("Later Or Watch", "稍后处理"),
+                    subtitle: appState.text("Items worth keeping visible, but not urgent enough to force into work right now.", "值得保留可见性，但还不需要立刻转成任务的事项。"),
+                    candidates: laterCandidates
+                )
+
+                GlassPanel(title: appState.text("All Candidate Queue", "全部候选队列")) {
                     if appState.candidates.isEmpty {
                         Text(appState.text("No candidates loaded.", "还没有候选项。"))
                             .foregroundStyle(.secondary)
                     } else {
                         VStack(alignment: .leading, spacing: 12) {
                             ForEach(appState.candidates) { candidate in
-                                VStack(alignment: .leading, spacing: 8) {
-                                    HStack(alignment: .top) {
-                                        VStack(alignment: .leading, spacing: 6) {
-                                            Text(candidate.title)
-                                                .font(.headline)
-                                            Text(candidate.detail)
-                                                .foregroundStyle(.secondary)
-                                        }
-                                        Spacer()
-                                        Button(appState.text("Defer", "延后")) {
-                                            appState.openDeferSheet(for: candidate)
-                                        }
-                                        Button(appState.text("Accept", "接受")) {
-                                            Task { await appState.acceptCandidate(candidate) }
-                                        }
-                                        .buttonStyle(.borderedProminent)
-                                    }
-                                    HStack {
-                                        StatusBadge(label: appState.displayToken(candidate.kind, category: .candidateKind), color: Brand.pine)
-                                        StatusBadge(label: "P\(candidate.priority)", color: Brand.amber)
-                                        if candidate.autoAcceptable {
-                                            StatusBadge(label: appState.text("Auto", "自动"), color: Brand.mint)
-                                        }
-                                        if candidate.needsConfirmation {
-                                            StatusBadge(label: appState.text("Needs Confirmation", "需要确认"), color: .red)
-                                        }
-                                        if let sourceTaskID = candidate.sourceTaskID {
-                                            Button(appState.text("Open Source Task", "打开源任务")) {
-                                                Task { await appState.openTask(id: sourceTaskID) }
-                                            }
-                                            .buttonStyle(.link)
-                                        }
-                                    }
-                                }
-                                .padding(.vertical, 8)
+                                CandidateDecisionCard(appState: appState, candidate: candidate)
                             }
                         }
                     }
@@ -2025,9 +3278,56 @@ private struct CandidateControlView: View {
             }
             .padding(24)
         }
+        .background(Brand.dashboardGradient(for: colorScheme))
         .task {
             if appState.candidates.isEmpty {
                 await appState.reloadCandidates()
+            }
+        }
+    }
+
+    private var reviewNowCandidates: [CandidateTask] {
+        appState.candidates.filter { $0.priority >= 7 || $0.needsConfirmation }.sorted { $0.priority > $1.priority }
+    }
+
+    private var autoReadyCandidates: [CandidateTask] {
+        appState.candidates.filter(\.autoAcceptable).sorted { $0.priority > $1.priority }
+    }
+
+    private var laterCandidates: [CandidateTask] {
+        appState.candidates.filter { !$0.autoAcceptable && $0.priority < 7 && !$0.needsConfirmation }
+            .sorted { $0.priority > $1.priority }
+    }
+
+    private var autoAcceptableCandidates: Int {
+        appState.candidates.filter(\.autoAcceptable).count
+    }
+
+    private var needsConfirmationCandidates: Int {
+        appState.candidates.filter(\.needsConfirmation).count
+    }
+
+    private var highPriorityCandidates: Int {
+        appState.candidates.filter { $0.priority >= 7 }.count
+    }
+
+    private func candidateSection(title: String, subtitle: String, candidates: [CandidateTask]) -> some View {
+        GlassPanel(title: title) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(subtitle)
+                    .foregroundStyle(.secondary)
+                if candidates.isEmpty {
+                    EmptyWorkspaceState(
+                        title: appState.text("Nothing here right now", "这里暂时没有内容"),
+                        detail: appState.text("When the scheduler finds something that fits this lane, it will appear here.", "当调度器发现适合这条分区的事项时，会显示在这里。")
+                    )
+                } else {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(candidates.prefix(4)) { candidate in
+                            CandidateDecisionCard(appState: appState, candidate: candidate)
+                        }
+                    }
+                }
             }
         }
     }
@@ -2039,6 +3339,64 @@ private struct CandidateControlView: View {
             Text(value)
                 .foregroundStyle(.secondary)
         }
+    }
+}
+
+private struct CandidateDecisionCard: View {
+    @ObservedObject var appState: AppState
+    @Environment(\.colorScheme) private var colorScheme
+    let candidate: CandidateTask
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(candidate.title)
+                        .font(.headline)
+                    Text(candidate.detail)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                Spacer()
+                Button(appState.text("Defer", "延后")) {
+                    appState.openDeferSheet(for: candidate)
+                }
+                Button(appState.text("Accept", "接受")) {
+                    Task { await appState.acceptCandidate(candidate) }
+                }
+                .buttonStyle(.borderedProminent)
+            }
+
+            HStack {
+                StatusBadge(label: appState.displayToken(candidate.kind, category: .candidateKind), color: Brand.active)
+                StatusBadge(label: "P\(candidate.priority)", color: Brand.waiting)
+                if candidate.autoAcceptable {
+                    StatusBadge(label: appState.text("Auto", "自动"), color: Brand.action)
+                }
+                if candidate.needsConfirmation {
+                    StatusBadge(label: appState.text("Needs Confirmation", "需要确认"), color: Brand.danger)
+                }
+            }
+
+            if let sourceTaskID = candidate.sourceTaskID {
+                HStack {
+                    Text(appState.text("Source Task", "源任务"))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button(sourceTaskID) {
+                        Task { await appState.openTask(id: sourceTaskID) }
+                    }
+                    .buttonStyle(.link)
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Brand.panelFill(for: colorScheme))
+                .stroke(Brand.panelStroke(for: colorScheme), lineWidth: 1)
+        )
     }
 }
 
@@ -2102,11 +3460,52 @@ private struct TaskDetailView: View {
                                     .font(.title2.weight(.semibold))
                                 HStack {
                                     StatusBadge(label: appState.displayToken(task.status, category: .taskStatus), color: color(for: task.status))
-                                    StatusBadge(label: appState.displayToken(task.riskLevel, category: .riskLevel), color: Brand.amber)
-                                    StatusBadge(label: appState.displayToken(task.executionMode, category: .executionMode), color: Brand.pine)
+                                    StatusBadge(label: appState.displayToken(task.riskLevel, category: .riskLevel), color: Brand.waiting)
+                                    StatusBadge(label: appState.displayToken(task.executionMode, category: .executionMode), color: Brand.active)
                                 }
                             }
                             Spacer()
+                        }
+
+                        SpotlightPanel(
+                            title: appState.text("Execution Summary", "执行摘要"),
+                            eyebrow: appState.text("Live Task", "执行中任务"),
+                            accentA: Brand.active,
+                            accentB: Brand.waiting
+                        ) {
+                            VStack(alignment: .leading, spacing: 12) {
+                                executionLine(appState.text("Owner", "执行者"), task.owner)
+                                executionLine(appState.text("Updated", "最近更新"), task.updatedAt.formatted(date: .abbreviated, time: .shortened))
+                                executionLine(appState.text("Runtime", "运行时"), task.runtimeName ?? task.executionPlan.runtimeName ?? appState.text("Automatic", "自动选择"))
+                                if let blockerReason = task.blockerReason, !blockerReason.isEmpty {
+                                    executionLine(appState.text("Current Blocker", "当前阻塞"), blockerReason)
+                                } else {
+                                    executionLine(appState.text("Current Guidance", "当前建议"), currentGuidance(for: task))
+                                }
+                                HStack {
+                                    if appState.canPlanSelectedTask {
+                                        Button(appState.text("Plan Task", "规划任务")) {
+                                            Task { await appState.planSelectedTask() }
+                                        }
+                                    }
+                                    if appState.canStartSelectedTask {
+                                        Button(appState.text("Start Task", "开始任务")) {
+                                            Task { await appState.startSelectedTask() }
+                                        }
+                                        .buttonStyle(.borderedProminent)
+                                    }
+                                    if appState.canConfirmSelectedTask {
+                                        Button(appState.text("Review Confirmation", "处理确认")) {
+                                            appState.isPresentingConfirmSheet = true
+                                        }
+                                    }
+                                    if appState.canVerifySelectedTask {
+                                        Button(appState.text("Verify Output", "验证输出")) {
+                                            appState.isPresentingVerifySheet = true
+                                        }
+                                    }
+                                }
+                            }
                         }
 
                         Picker(appState.text("Section", "分区"), selection: $selection) {
@@ -2119,9 +3518,10 @@ private struct TaskDetailView: View {
                         switch selection {
                         case .summary:
                             detailSection(appState.text("Success Criteria", "成功标准"), items: task.successCriteria, empty: appState.text("No success criteria.", "没有成功标准。"))
-                            detailSection(appState.text("Plan Steps", "计划步骤"), items: task.executionPlan.steps.map { "\($0.capabilityName):\($0.action) - \($0.purpose)" }, empty: appState.text("No plan steps yet.", "还没有计划步骤。"))
+                            detailSection(appState.text("Immediate Plan", "当前计划"), items: task.executionPlan.steps.map { "\($0.capabilityName): \($0.purpose)" }, empty: appState.text("No plan steps yet.", "还没有计划步骤。"))
                             detailSection(appState.text("Artifacts", "产物"), items: task.artifactPaths, empty: appState.text("No artifacts produced yet.", "还没有生成产物。"))
-                            detailSection(appState.text("Verification Notes", "验证说明"), items: task.verificationNotes, empty: appState.text("No verification notes.", "还没有验证说明。"))
+                            detailSection(appState.text("Verification Notes", "验证说明"), items: task.verificationNotes, empty: appState.text("还没有验证说明。", "还没有验证说明。"))
+                            detailSection(appState.text("Tags", "标签"), items: task.tags, empty: appState.text("No tags attached.", "没有附加标签。"))
                         case .timeline:
                             timelineSection
                         case .relations:
@@ -2145,6 +3545,36 @@ private struct TaskDetailView: View {
             } else {
                 ContentUnavailableView(appState.text("No Task Selected", "未选择任务"), systemImage: "square.and.pencil", description: Text(appState.text("Create a task or select one from the list.", "创建一个任务，或从列表中选择一个任务。")))
             }
+        }
+    }
+
+    private func executionLine(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.headline)
+            Text(value)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func currentGuidance(for task: TaskRecord) -> String {
+        if let firstStep = task.executionPlan.steps.first {
+            return "\(firstStep.capabilityName): \(firstStep.purpose)"
+        }
+        switch task.status {
+        case "captured":
+            return appState.text("Plan the task to create a concrete execution path.", "先规划任务，形成明确执行路径。")
+        case "planned":
+            return appState.text("Start execution and produce the first artifact or side effect.", "开始执行，生成第一个产物或外部动作。")
+        case "executing":
+            return appState.text("Keep the task moving until there is something to verify.", "继续推进任务，直到产出可验证结果。")
+        case "verifying":
+            return appState.text("Review outputs and mark whether the task really met the goal.", "检查产出，并确认任务是否真的达到目标。")
+        case "done":
+            return appState.text("Consider reflecting if this task taught something reusable.", "如果这个任务带来了可复用经验，可以考虑复盘。")
+        default:
+            return appState.text("Review the task context and decide the next safe action.", "查看任务上下文，再决定下一步安全动作。")
         }
     }
 
@@ -2273,9 +3703,25 @@ private struct TaskDetailView: View {
                                     .foregroundStyle(.secondary)
                             }
                             if !run.metadata.isEmpty {
-                                Text(run.metadata.keys.sorted().map { "\($0)=\(run.metadata[$0]?.displayText ?? "")" }.joined(separator: ", "))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    if let runtimeName = run.metadata["runtime_name"]?.stringValue {
+                                        Text("runtime=\(runtimeName)")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    if let artifactPath = run.metadata["artifact_path"]?.stringValue {
+                                        Text("artifact=\(artifactPath)")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                    }
+                                    let remaining = run.metadataSummaryExcludingRuntime
+                                    if !remaining.isEmpty {
+                                        Text(remaining)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -2288,13 +3734,13 @@ private struct TaskDetailView: View {
     private func color(for status: String) -> Color {
         switch status {
         case "done":
-            return Brand.mint
+            return Brand.action
         case "blocked":
-            return .red
+            return Brand.danger
         case "executing":
-            return Brand.pine
+            return Brand.active
         case "planned":
-            return Brand.amber
+            return Brand.waiting
         default:
             return .gray
         }
@@ -2328,7 +3774,7 @@ private struct RunInspectorSheet: View {
                             .font(.caption.monospaced())
                             .foregroundStyle(.secondary)
                         HStack {
-                            StatusBadge(label: appState.displayToken(run.status, category: .taskStatus), color: run.status == "done" ? Brand.mint : Brand.pine)
+                            StatusBadge(label: appState.displayToken(run.status, category: .taskStatus), color: run.status == "done" ? Brand.action : Brand.active)
                             Button(run.taskID) {
                                 Task { await appState.openTask(id: run.taskID) }
                             }
@@ -2336,12 +3782,30 @@ private struct RunInspectorSheet: View {
                         }
                     }
                     Spacer()
-                    Button(appState.text("Refresh", "刷新")) {
-                        Task { await appState.loadSelectedRunContext() }
+                    HStack {
+                        Button(appState.text("Open Task", "打开任务")) {
+                            Task { await appState.openTask(id: run.taskID) }
+                        }
+                        .buttonStyle(.link)
+                        if let task = appState.tasks.first(where: { $0.id == run.taskID }), ["captured", "planned"].contains(task.status) {
+                            Button(appState.text("Re-run Task", "重新执行")) {
+                                Task { await appState.startTask(id: run.taskID) }
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                        Button(appState.text("Refresh", "刷新")) {
+                            Task { await appState.loadSelectedRunContext() }
+                        }
                     }
                 }
 
                 HStack(alignment: .top, spacing: 16) {
+                    GlassPanel(title: appState.text("Run Context", "运行上下文")) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            runtimeMetadataSection(for: run)
+                        }
+                    }
+
                     GlassPanel(title: appState.text("Timeline", "时间线")) {
                         if appState.isLoadingRunContext && appState.selectedRunTimeline.isEmpty {
                             ProgressView()
@@ -2414,6 +3878,143 @@ private struct RunInspectorSheet: View {
         }
         .padding(24)
     }
+
+    @ViewBuilder
+    private func runtimeMetadataSection(for run: ExecutionRunRecord) -> some View {
+        Group {
+            if run.metadata.isEmpty {
+                Text(appState.text("No run metadata recorded yet.", "还没有记录运行元数据。"))
+                    .foregroundStyle(.secondary)
+            } else {
+                if let runtimeName = run.metadata["runtime_name"]?.stringValue {
+                    inspectorLine(appState.text("Runtime", "运行时"), runtimeName)
+                }
+                if let command = run.metadata["runtime_command_preview"]?.stringValue {
+                    inspectorLine(appState.text("Command", "命令"), command)
+                }
+                if let executedCommand = run.metadata["runtime_executed_command"]?.stringValue, !executedCommand.isEmpty {
+                    inspectorLine(appState.text("Executed Command", "执行命令"), executedCommand)
+                }
+                if let summary = run.metadata["runtime_summary"]?.stringValue, !summary.isEmpty {
+                    inspectorLine(appState.text("Summary", "摘要"), summary)
+                }
+                if let executionStatus = run.metadata["runtime_execution_status"]?.stringValue, !executionStatus.isEmpty {
+                    inspectorLine(appState.text("Execution Status", "执行状态"), executionStatus)
+                }
+                if let exitCode = run.metadata["runtime_exit_code"]?.stringValue {
+                    inspectorLine(appState.text("Exit Code", "退出码"), exitCode)
+                }
+                if let liveExecution = run.metadata["runtime_live_execution"]?.stringValue {
+                    inspectorLine(appState.text("Live Execution", "实时执行"), liveExecution)
+                }
+                if let artifactPath = run.metadata["artifact_path"]?.stringValue {
+                    inspectorLine(appState.text("Artifact", "产物"), artifactPath)
+                }
+
+                if case .object(let invocationObject) = run.metadata["runtime_invocation"] {
+                    if let workingDirectory = invocationObject["working_directory"]?.stringValue {
+                        inspectorLine(appState.text("Working Directory", "工作目录"), workingDirectory)
+                    }
+                    if let mode = invocationObject["invocation_mode"]?.stringValue {
+                        inspectorLine(appState.text("Launch Mode", "启动模式"), mode)
+                    }
+                    if case .object(let envHints) = invocationObject["environment_hints"], !envHints.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(appState.text("Environment Hints", "环境提示"))
+                                .font(.headline)
+                            ForEach(envHints.keys.sorted(), id: \.self) { key in
+                                Text("\(key)=\(envHints[key]?.displayText ?? "")")
+                                    .font(.body.monospaced())
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                    }
+                    if let prompt = invocationObject["prompt"]?.stringValue, !prompt.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(appState.text("Prompt", "提示"))
+                                .font(.headline)
+                            Text(prompt)
+                                .font(.body.monospaced())
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(12)
+                                .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                        }
+                    }
+                }
+
+                if let stdout = run.metadata["runtime_stdout"]?.stringValue, !stdout.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(appState.text("Stdout", "标准输出"))
+                            .font(.headline)
+                        Text(stdout)
+                            .font(.body.monospaced())
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12)
+                            .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                    }
+                }
+
+                if let stderr = run.metadata["runtime_stderr"]?.stringValue, !stderr.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(appState.text("Stderr", "标准错误"))
+                            .font(.headline)
+                        Text(stderr)
+                            .font(.body.monospaced())
+                            .foregroundStyle(.red)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12)
+                            .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                    }
+                }
+
+                let remaining = run.metadataSummaryExcludingRuntime
+                if !remaining.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(appState.text("Additional Metadata", "附加元数据"))
+                            .font(.headline)
+                        Text(remaining)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+        }
+    }
+
+    private func inspectorLine(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.headline)
+            Text(value)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+private extension ExecutionRunRecord {
+    var metadataSummaryExcludingRuntime: String {
+        metadata
+            .filter { key, _ in
+                ![
+                    "runtime_name",
+                    "runtime_command_preview",
+                    "runtime_executed_command",
+                    "runtime_summary",
+                    "runtime_execution_status",
+                    "runtime_exit_code",
+                    "runtime_live_execution",
+                    "runtime_stdout",
+                    "runtime_stderr",
+                    "runtime_invocation",
+                    "artifact_path",
+                ].contains(key)
+            }
+            .keys
+            .sorted()
+            .map { "\($0)=\(metadata[$0]?.displayText ?? "")" }
+            .joined(separator: ", ")
+    }
 }
 
 private extension EventRecord {
@@ -2461,6 +4062,64 @@ private struct TaskRow: View {
             }
         }
         .padding(.vertical, 6)
+    }
+}
+
+private struct TaskWorkspaceCard: View {
+    @ObservedObject var appState: AppState
+    let task: TaskRecord
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(task.objective)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                    Text(task.updatedAt, style: .relative)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                StatusBadge(label: appState.displayToken(task.status, category: .taskStatus), color: taskStatusColor)
+            }
+            HStack {
+                StatusBadge(label: appState.displayToken(task.executionMode, category: .executionMode), color: Brand.pine)
+                StatusBadge(label: appState.displayToken(task.riskLevel, category: .riskLevel), color: Brand.amber)
+                if let runtimeName = task.runtimeName, !runtimeName.isEmpty {
+                    StatusBadge(label: runtimeName, color: Brand.ink)
+                }
+            }
+            if let blocker = task.blockerReason, !blocker.isEmpty {
+                Text(blocker)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            } else if let firstStep = task.executionPlan.steps.first {
+                Text("\(firstStep.capabilityName): \(firstStep.purpose)")
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color.primary.opacity(0.035))
+        )
+    }
+
+    private var taskStatusColor: Color {
+        switch task.status {
+        case "done":
+            return Brand.mint
+        case "blocked":
+            return .red
+        case "executing", "verifying":
+            return Brand.amber
+        default:
+            return Brand.pine
+        }
     }
 }
 
@@ -2523,6 +4182,93 @@ private struct CapabilityRow: View {
     }
 }
 
+private struct RuntimeRow: View {
+    @ObservedObject var appState: AppState
+    let runtime: RuntimeDescriptor
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(runtime.name)
+                    .font(.headline)
+                Spacer()
+                StatusBadge(label: runtime.status, color: runtime.status == "available" ? Brand.mint : Brand.amber)
+            }
+            Text(runtime.description)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+            HStack {
+                StatusBadge(label: runtime.runtimeType, color: Brand.ink)
+                if let rootPath = runtime.rootPath, !rootPath.isEmpty {
+                    StatusBadge(label: "root", color: Brand.pine)
+                }
+            }
+        }
+        .padding(.vertical, 6)
+    }
+}
+
+private struct PluginRow: View {
+    @ObservedObject var appState: AppState
+    let plugin: PluginDescriptor
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(plugin.name)
+                    .font(.headline)
+                Spacer()
+                StatusBadge(
+                    label: appState.displayToken(plugin.status, category: .capabilityStatus),
+                    color: plugin.status == "available" ? Brand.mint : Brand.amber
+                )
+            }
+            Text(plugin.description)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+            HStack {
+                StatusBadge(label: "v\(plugin.version)", color: Brand.ink)
+                if !plugin.runtimes.isEmpty {
+                    StatusBadge(label: "\(plugin.runtimes.count) runtime", color: Brand.ink)
+                }
+                if !plugin.capabilities.isEmpty {
+                    StatusBadge(label: "\(plugin.capabilities.count) capability", color: Brand.pine)
+                }
+                if !plugin.workflows.isEmpty {
+                    StatusBadge(label: "\(plugin.workflows.count) workflow", color: Brand.amber)
+                }
+            }
+        }
+        .padding(.vertical, 6)
+    }
+}
+
+private struct WorkflowRow: View {
+    let workflow: WorkflowManifest
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(workflow.name)
+                    .font(.headline)
+                Spacer()
+                StatusBadge(label: workflow.handler, color: Brand.ink)
+            }
+            Text(workflow.description)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+            if !workflow.tags.isEmpty {
+                HStack {
+                    ForEach(Array(workflow.tags.prefix(2)), id: \.self) { tag in
+                        StatusBadge(label: tag, color: Brand.amber)
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 6)
+    }
+}
+
 private struct ReminderRow: View {
     let reminder: ReminderRecord
 
@@ -2563,54 +4309,82 @@ private struct MetricCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            RoundedRectangle(cornerRadius: 16)
-                .fill(accent.gradient)
-                .frame(width: 42, height: 42)
-                .overlay {
-                    Image("StatusGlyph")
-                        .resizable()
-                        .scaledToFit()
-                        .padding(9)
-                        .foregroundStyle(.white)
-                }
+            HStack {
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(accent.gradient)
+                    .frame(width: 42, height: 42)
+                    .overlay {
+                        Image("StatusGlyph")
+                            .resizable()
+                            .scaledToFit()
+                            .padding(9)
+                            .foregroundStyle(.white)
+                    }
+                Spacer()
+                Capsule(style: .continuous)
+                    .fill(accent.opacity(0.16))
+                    .frame(width: 52, height: 10)
+            }
             Text(title)
+                .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
             Text(value)
-                .font(.title2.weight(.semibold))
+                .font(.system(size: 28, weight: .semibold, design: .rounded))
                 .foregroundStyle(.primary)
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 24)
-                .fill(Brand.panelFill(for: colorScheme))
-                .stroke(Brand.panelStroke(for: colorScheme), lineWidth: 1)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Brand.panelFill(for: colorScheme),
+                            accent.opacity(colorScheme == .dark ? 0.10 : 0.08)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .overlay(alignment: .topLeading) {
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(Brand.panelStroke(for: colorScheme), lineWidth: 1)
+                }
         )
     }
 }
 
 private struct BrandHero: View {
+    @Environment(\.colorScheme) private var colorScheme
     let eyebrow: String
     let title: String
     let subtitle: String
 
     var body: some View {
         HStack(alignment: .center, spacing: 18) {
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [Brand.pine, Brand.mint],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
+            ZStack {
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [Brand.pine, Brand.mint],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
                     )
-                )
-                .frame(width: 84, height: 84)
-                .overlay {
-                    Image("StatusGlyph")
-                        .resizable()
-                        .scaledToFit()
-                        .padding(16)
-                }
+                    .frame(width: 84, height: 84)
+                Circle()
+                    .fill(Color.white.opacity(0.18))
+                    .frame(width: 28, height: 28)
+                    .offset(x: 22, y: -22)
+                Circle()
+                    .fill(Color.black.opacity(0.10))
+                    .frame(width: 20, height: 20)
+                    .offset(x: -20, y: 24)
+                Image("StatusGlyph")
+                    .resizable()
+                    .scaledToFit()
+                    .padding(16)
+            }
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(eyebrow.uppercased())
@@ -2623,7 +4397,76 @@ private struct BrandHero: View {
                 Text(subtitle)
                     .foregroundStyle(.secondary)
             }
+            Spacer()
         }
+        .padding(24)
+        .background(
+            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: colorScheme == .dark
+                            ? [Color.white.opacity(0.05), Brand.pine.opacity(0.18)]
+                            : [Color.white.opacity(0.90), Brand.mint.opacity(0.12)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 30, style: .continuous)
+                        .stroke(Brand.panelStroke(for: colorScheme), lineWidth: 1)
+                }
+                .shadow(color: Brand.panelShadow(for: colorScheme), radius: 18, y: 8)
+        )
+    }
+}
+
+private struct SpotlightPanel<Content: View>: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let title: String
+    let eyebrow: String
+    let accentA: Color
+    let accentB: Color
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(eyebrow.uppercased())
+                    .font(.caption.weight(.semibold))
+                    .tracking(1.1)
+                    .foregroundStyle(accentB)
+                Text(title)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.primary)
+            }
+            content
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: colorScheme == .dark
+                            ? [Color.white.opacity(0.06), accentA.opacity(0.22), accentB.opacity(0.16)]
+                            : [Color.white.opacity(0.96), accentA.opacity(0.12), accentB.opacity(0.09)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .overlay(alignment: .topTrailing) {
+                    Circle()
+                        .fill(accentB.opacity(colorScheme == .dark ? 0.24 : 0.18))
+                        .frame(width: 84, height: 84)
+                        .blur(radius: 2)
+                        .offset(x: 10, y: -12)
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 26, style: .continuous)
+                        .stroke(Brand.panelStroke(for: colorScheme), lineWidth: 1)
+                }
+                .shadow(color: Brand.panelShadow(for: colorScheme), radius: 20, y: 10)
+        )
     }
 }
 
@@ -2659,7 +4502,7 @@ private struct GlassPanel<Content: View>: View {
         .background(
             RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .fill(Brand.panelFill(for: colorScheme))
-                .overlay {
+                .overlay(alignment: .topLeading) {
                     RoundedRectangle(cornerRadius: 24, style: .continuous)
                         .stroke(Brand.panelStroke(for: colorScheme), lineWidth: 1)
                 }

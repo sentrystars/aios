@@ -28,6 +28,8 @@ from ai_os.domain import (
     utc_now,
 )
 from ai_os.services import CandidateTaskService, DeliveryCoordinator, EventQueryService, IntakeCoordinator, build_container
+from ai_os.policy import LifecycleHook, PolicyContext, PolicyRule
+from ai_os.runtimes import ClaudeCodeRuntime
 
 
 class KernelServicesTest(unittest.TestCase):
@@ -47,6 +49,8 @@ class KernelServicesTest(unittest.TestCase):
             capability_bus=self.container.capability_bus,
             relation_service=self.container.relation_service,
             execution_run_service=self.container.execution_run_service,
+            runtime_registry=self.container.runtime_registry,
+            policy_engine=self.container.policy_engine,
         )
         self.events = EventQueryService(self.container.event_repo)
         self.candidates = CandidateTaskService(
@@ -111,6 +115,7 @@ class KernelServicesTest(unittest.TestCase):
         self.assertEqual(response.task.objective, "Draft the first AI OS milestone plan")
         self.assertEqual(response.task.execution_mode, ExecutionMode.FILE_ARTIFACT)
         self.assertEqual(response.task.execution_plan.mode, ExecutionMode.FILE_ARTIFACT)
+        self.assertIsNone(response.task.runtime_name)
 
     def test_intake_does_not_create_task_for_question(self) -> None:
         response = self.intake.process(InputPayload(text="What should AI OS optimize for first?"))
@@ -146,6 +151,22 @@ class KernelServicesTest(unittest.TestCase):
         self.assertEqual(response.cognition.suggested_execution_plan.steps[0].capability_name, "calendar")
         self.assertIsNotNone(response.task)
         self.assertEqual(response.task.execution_mode, ExecutionMode.CALENDAR_EVENT)
+
+    def test_intake_assigns_calendar_execution_mode_for_chinese_request(self) -> None:
+        response = self.intake.process(InputPayload(text="在日历中增加日程：下午1点进行产品评审"))
+        self.assertEqual(response.cognition.suggested_execution_mode, ExecutionMode.CALENDAR_EVENT)
+        self.assertEqual(response.cognition.suggested_execution_plan.steps[0].capability_name, "calendar")
+        self.assertIsNotNone(response.task)
+        self.assertEqual(response.task.execution_mode, ExecutionMode.CALENDAR_EVENT)
+
+    def test_candidate_service_list_alias_matches_discover(self) -> None:
+        self.container.task_engine.create(TaskCreatePayload(objective="Plan the next release"))
+        discovered = self.candidates.discover(limit=10)
+        listed = self.candidates.list(limit=10)
+        self.assertEqual(
+            [(item.kind, item.title, item.source_task_id) for item in discovered],
+            [(item.kind, item.title, item.source_task_id) for item in listed],
+        )
 
     def test_intake_uses_reflection_guardrail_to_require_confirmation(self) -> None:
         completed = self.container.task_engine.create(TaskCreatePayload(objective="Capture Alice guardrail"))
@@ -207,6 +228,19 @@ class KernelServicesTest(unittest.TestCase):
         verified = self.delivery.verify_task(task.id, TaskVerificationPayload())
         self.assertEqual(verified.status, TaskStatus.DONE)
         self.assertIn("Memory record created", verified.verification_notes)
+
+    def test_calendar_execution_parses_explicit_chinese_time(self) -> None:
+        task = self.container.task_engine.create(TaskCreatePayload(objective="在日历中增加日程：明天下午1点进行产品评审"))
+        self.container.task_engine.plan(task.id)
+        executed = self.delivery.execute_task(task.id)
+        self.assertTrue(executed.artifact_paths is not None)
+        events = self.container.capability_bus.execute(
+            CapabilityExecutionPayload(capability_name="calendar", action="list", parameters={})
+        )
+        scheduled_events = json.loads(events.output)
+        self.assertTrue(scheduled_events)
+        latest = scheduled_events[-1]
+        self.assertIn("T13:00:00", latest["scheduled_for"])
 
     def test_capability_bus_executes_notes_and_gates_messaging(self) -> None:
         note_result = self.delivery.execute_capability(
@@ -278,6 +312,128 @@ class KernelServicesTest(unittest.TestCase):
         self.assertTrue(devices)
         self.assertEqual(devices[0].device_class, "mac_local")
         self.assertIn("calendar", devices[0].capabilities)
+
+    def test_runtime_registry_lists_claude_code_runtime(self) -> None:
+        runtimes = self.container.runtime_registry.list()
+        self.assertTrue(runtimes)
+        runtime = next(item for item in runtimes if item.name == "claude-code")
+        self.assertEqual(runtime.runtime_type, "development")
+        self.assertIn("code.execute", runtime.supported_capabilities)
+        self.assertTrue(any("Discovered from runtime manifest." in note for note in runtime.notes))
+
+    def test_capability_registry_discovers_manifests(self) -> None:
+        manifests = self.container.capability_bus.list_manifests()
+        self.assertTrue(manifests)
+        manifest = next(item for item in manifests if item.name == "messaging")
+        self.assertEqual(manifest.handler, "messaging")
+        self.assertTrue(manifest.confirmation_required)
+
+    def test_runtime_registry_discovers_manifests(self) -> None:
+        manifests = self.container.runtime_registry.list_manifests()
+        self.assertTrue(manifests)
+        manifest = next(item for item in manifests if item.name == "claude-code")
+        self.assertEqual(manifest.adapter, "claude-code")
+        self.assertIn("git.workflow", manifest.supported_capabilities)
+
+    def test_workflow_registry_discovers_manifests(self) -> None:
+        manifests = self.container.workflow_registry.list_manifests()
+        self.assertTrue(manifests)
+        names = {item.name for item in manifests}
+        self.assertIn("intake", names)
+        self.assertIn("delivery", names)
+
+    def test_runtime_registry_contributes_policy_rules(self) -> None:
+        rules = self.container.runtime_registry.contributed_policy_rules()
+        self.assertTrue(any(rule.name == "claude_code_runtime_tracks_code_execution" for rule in rules))
+
+    def test_runtime_registry_prepares_task_preview(self) -> None:
+        task = self.container.task_engine.create(TaskCreatePayload(objective="Refactor AI OS services"))
+        self.container.task_engine.plan(task.id)
+        planned = self.container.task_engine.repo.get(task.id)
+        self.assertEqual(planned.runtime_name, "claude-code")
+        self.assertEqual(planned.execution_plan.runtime_name, "claude-code")
+        preview = self.container.runtime_registry.prepare_task("claude-code", planned)
+        self.assertEqual(preview["runtime"], "claude-code")
+        self.assertEqual(preview["command_preview"], "claude -p")
+        self.assertIn("Objective:", preview["prompt_preview"])
+
+    def test_runtime_registry_executes_task_bundle(self) -> None:
+        task = self.container.task_engine.create(TaskCreatePayload(objective="Implement AI OS runtime adapter"))
+        self.container.task_engine.plan(task.id)
+        planned = self.container.task_engine.repo.get(task.id)
+        result = self.container.runtime_registry.execute_task("claude-code", planned)
+        self.assertEqual(result["runtime"], "claude-code")
+        self.assertIn("Runtime Execution: claude-code", result["artifact_content"])
+        self.assertIn("Command Preview: claude -p", result["artifact_content"])
+        self.assertIn(result["execution_status"], {"completed", "failed", "not_installed"})
+
+    def test_runtime_registry_builds_invocation(self) -> None:
+        task = self.container.task_engine.create(TaskCreatePayload(objective="Implement AI OS runtime adapter"))
+        self.container.task_engine.plan(task.id)
+        planned = self.container.task_engine.repo.get(task.id)
+        invocation = self.container.runtime_registry.build_invocation("claude-code", planned)
+        self.assertEqual(invocation.runtime, "claude-code")
+        self.assertEqual(invocation.launch_command, "claude")
+        self.assertEqual(invocation.launch_args, ["-p"])
+        self.assertEqual(invocation.invocation_mode, "print_mode")
+        self.assertEqual(invocation.environment_hints["AI_OS_TASK_ID"], planned.id)
+
+    def test_claude_runtime_uses_injected_runner_for_live_execution(self) -> None:
+        runtime = ClaudeCodeRuntime(
+            workspace_root=Path(self.tempdir.name),
+            app_root=Path("/Users/liuxiaofeng/AI OS"),
+            command_runner=lambda invocation: {
+                "execution_status": "completed",
+                "exit_code": 0,
+                "stdout": "live output",
+                "stderr": "",
+                "executed_command": "claude -p",
+                "live_execution": True,
+            },
+            command_exists=lambda _: "/usr/local/bin/claude",
+        )
+        task = self.container.task_engine.create(TaskCreatePayload(objective="Implement AI OS runtime adapter"))
+        self.container.task_engine.plan(task.id)
+        planned = self.container.task_engine.repo.get(task.id)
+        result = runtime.execute_task(planned)
+        self.assertEqual(result["execution_status"], "completed")
+        self.assertEqual(result["exit_code"], 0)
+        self.assertEqual(result["stdout"], "live output")
+        self.assertTrue(result["live_execution"])
+
+    def test_task_create_persists_explicit_runtime_name(self) -> None:
+        task = self.container.task_engine.create(
+            TaskCreatePayload(
+                objective="Draft architecture note",
+                runtime_name="claude-code",
+            )
+        )
+        self.assertEqual(task.runtime_name, "claude-code")
+        self.assertEqual(task.execution_plan.runtime_name, "claude-code")
+
+    def test_delivery_prepares_runtime_for_code_task_artifact(self) -> None:
+        task = self.container.task_engine.create(TaskCreatePayload(objective="Implement API refactor for AI OS runtime"))
+        self.container.task_engine.plan(task.id)
+        executed = self.delivery.execute_task(task.id)
+        self.assertTrue(any(note.startswith("Runtime prepared: claude-code") for note in executed.verification_notes))
+        self.assertTrue(any(note.startswith("Runtime executed: claude-code") for note in executed.verification_notes))
+        run = self.container.execution_run_service.latest_for_task(task.id)
+        self.assertEqual(run.metadata["runtime_name"], "claude-code")
+        self.assertIn("runtime_invocation", run.metadata)
+        self.assertEqual(run.metadata["artifact_kind"], "file_artifact")
+        self.assertIn("runtime_execution_status", run.metadata)
+        self.assertIn("runtime_live_execution", run.metadata)
+        relations = self.container.relation_service.list_for_entity("execution_run", run.id)
+        self.assertTrue(any(relation.relation_type == "prepared_runtime" and relation.target_id == "claude-code" for relation in relations))
+        self.assertTrue(any(relation.relation_type == "executed_runtime" and relation.target_id == "claude-code" for relation in relations))
+        artifact = self.delivery.execute_capability(
+            CapabilityExecutionPayload(
+                capability_name="local_files",
+                action="read_text",
+                parameters={"path": executed.artifact_paths[0]},
+            )
+        )
+        self.assertIn("Runtime Execution: claude-code", artifact.output)
 
     def test_candidate_discovery_adds_goal_review_for_unlinked_goal(self) -> None:
         goal = self.container.goal_service.create(
@@ -649,6 +805,66 @@ class KernelServicesTest(unittest.TestCase):
         relations = self.container.relation_service.list_for_entity("task", task.id)
         self.assertTrue(any(relation.relation_type == "scheduled_calendar_event" for relation in relations))
 
+    def test_policy_blocks_high_risk_external_side_effect_until_confirmed(self) -> None:
+        task = self.container.task_engine.create(
+            TaskCreatePayload(
+                objective="Schedule time block for sensitive partner negotiation",
+                risk_level=RiskLevel.HIGH,
+            )
+        )
+        self.container.task_engine.plan(task.id)
+        blocked = self.delivery.execute_task(task.id)
+        self.assertEqual(blocked.status, TaskStatus.BLOCKED)
+        self.assertEqual(blocked.blocker_reason, "Awaiting policy confirmation before external side effect.")
+        run = self.container.execution_run_service.latest_for_task(task.id)
+        self.assertEqual(run.status, TaskStatus.BLOCKED.value)
+        self.assertIn("policy_before_external_side_effect", run.metadata)
+        self.assertFalse(
+            any(
+                relation.relation_type == "scheduled_calendar_event"
+                for relation in self.container.relation_service.list_for_entity("task", task.id)
+            )
+        )
+
+        confirmed = self.delivery.confirm_task(task.id, TaskConfirmationPayload(approved=True))
+        self.assertEqual(confirmed.status, TaskStatus.PLANNED)
+        self.assertIn("policy:override_confirmed", confirmed.tags)
+
+        executed = self.delivery.execute_task(task.id)
+        self.assertEqual(executed.status, TaskStatus.EXECUTING)
+        relations = self.container.relation_service.list_for_entity("task", task.id)
+        self.assertTrue(any(relation.relation_type == "scheduled_calendar_event" for relation in relations))
+
+    def test_policy_engine_exposes_rules_by_hook(self) -> None:
+        before_execute_rules = self.container.policy_engine.rules_for(LifecycleHook.BEFORE_EXECUTE)
+        before_side_effect_rules = self.container.policy_engine.rules_for(LifecycleHook.BEFORE_EXTERNAL_SIDE_EFFECT)
+        self.assertTrue(any(rule.name == "track_high_risk_execution" for rule in before_execute_rules))
+        self.assertTrue(any(rule.name == "claude_code_runtime_tracks_code_execution" for rule in before_execute_rules))
+        self.assertTrue(any(rule.name == "gate_high_risk_or_confirmation_required_side_effect" for rule in before_side_effect_rules))
+
+    def test_policy_engine_can_register_runtime_rule(self) -> None:
+        self.container.policy_engine.register_rule(
+            PolicyRule(
+                name="block_custom_external_effect",
+                hook=LifecycleHook.BEFORE_EXTERNAL_SIDE_EFFECT,
+                condition=lambda ctx: ctx.effect_type == "custom.effect",
+                allowed=False,
+                reason="Custom effect blocked.",
+                metadata={"policy_path": "custom_block"},
+            ),
+            prepend=True,
+        )
+        task = self.container.task_engine.create(TaskCreatePayload(objective="Draft architecture note"))
+        decision = self.container.policy_engine.before_external_side_effect(task, "custom.effect")
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.reason, "Custom effect blocked.")
+        self.assertIn("block_custom_external_effect", decision.metadata["matched_rules"])
+
+    def test_policy_engine_describes_rules(self) -> None:
+        descriptors = self.container.policy_engine.describe_rules(LifecycleHook.BEFORE_EXTERNAL_SIDE_EFFECT)
+        self.assertTrue(descriptors)
+        self.assertTrue(any(item.name == "gate_high_risk_or_confirmation_required_side_effect" for item in descriptors))
+
     def test_confirm_message_task_allows_verification_to_complete(self) -> None:
         task = self.container.task_engine.create(TaskCreatePayload(objective="Message Alice about the current AI OS status"))
         self.container.task_engine.plan(task.id)
@@ -706,6 +922,7 @@ class KernelServicesTest(unittest.TestCase):
         timeline = self.events.execution_run_timeline(run.id, limit=20)
         self.assertTrue(timeline)
         self.assertEqual(timeline[0].title, "Execution Run Started")
+        self.assertTrue(any(item.title == "Execution Run Updated" for item in timeline))
         self.assertTrue(any(item.title == "Relation Recorded" for item in timeline))
         self.assertTrue(any(item.title == "Execution Produced Output" for item in timeline))
         self.assertEqual(timeline[-1].title, "Execution Run Completed")
@@ -1687,6 +1904,68 @@ class KernelServicesTest(unittest.TestCase):
         runs = self.container.execution_run_service.list_for_task(task.id)
         run_relations = self.container.relation_service.list_for_entity("execution_run", runs[0].id)
         self.assertTrue(any(relation.relation_type == "produced_reflection" for relation in run_relations))
+
+    def test_plugin_registry_discovers_plugin_manifests(self) -> None:
+        plugin_names = {item.name for item in self.container.plugin_registry.list_manifests()}
+
+        self.assertIn("ai-os-core", plugin_names)
+        self.assertIn("claude-code", plugin_names)
+
+    def test_plugin_registry_resolves_runtime_capability_and_workflow_bindings(self) -> None:
+        plugins = {item.name: item for item in self.container.plugin_registry.list()}
+        core = plugins["ai-os-core"]
+        claude = plugins["claude-code"]
+
+        self.assertEqual(core.status, "available")
+        self.assertIn("messaging", core.capabilities)
+        self.assertIn("delivery", core.workflows)
+        self.assertTrue(any("Discovered from plugin manifest." in note for note in core.notes))
+
+        self.assertEqual(claude.status, "available")
+        self.assertIn("claude-code", claude.runtimes)
+        self.assertIn("delivery", claude.workflows)
+
+    def test_capability_usage_summary_returns_recent_matching_tasks(self) -> None:
+        first = self.container.task_engine.create(TaskCreatePayload(objective="Message Alice with the first update"))
+        second = self.container.task_engine.create(TaskCreatePayload(objective="Message Alice with another update"))
+        self.container.task_engine.plan(first.id)
+        planned_second = self.container.task_engine.plan(second.id)
+        planned_second.updated_at = utc_now() + timedelta(seconds=1)
+        self.container.task_engine.repo.update(planned_second)
+
+        tasks = [task for task in self.container.task_engine.list() if any(step.capability_name == "messaging" for step in task.execution_plan.steps)]
+        tasks.sort(key=lambda item: item.updated_at, reverse=True)
+
+        self.assertEqual(tasks[0].id, second.id)
+        self.assertEqual(tasks[1].id, first.id)
+
+    def test_plugin_usage_matches_runtime_and_capability_tasks(self) -> None:
+        coding = self.container.task_engine.create(TaskCreatePayload(objective="Implement runtime bridge"))
+        reminder = self.container.task_engine.create(TaskCreatePayload(objective="Remind me about plugin audit", execution_mode=ExecutionMode.REMINDER))
+        planned_coding = self.container.task_engine.plan(coding.id)
+        planned_reminder = self.container.task_engine.plan(reminder.id)
+
+        plugins = {item.name: item for item in self.container.plugin_registry.list()}
+        claude = plugins["claude-code"]
+        core = plugins["ai-os-core"]
+
+        claude_matches = [
+            task.id
+            for task in self.container.task_engine.list()
+            if (task.runtime_name in claude.runtimes if task.runtime_name else False)
+            or (task.execution_plan.runtime_name in claude.runtimes if task.execution_plan.runtime_name else False)
+            or any(step.capability_name in claude.capabilities for step in task.execution_plan.steps)
+        ]
+        core_matches = [
+            task.id
+            for task in self.container.task_engine.list()
+            if (task.runtime_name in core.runtimes if task.runtime_name else False)
+            or (task.execution_plan.runtime_name in core.runtimes if task.execution_plan.runtime_name else False)
+            or any(step.capability_name in core.capabilities for step in task.execution_plan.steps)
+        ]
+
+        self.assertIn(planned_coding.id, claude_matches)
+        self.assertIn(planned_reminder.id, core_matches)
 
 
 if __name__ == "__main__":

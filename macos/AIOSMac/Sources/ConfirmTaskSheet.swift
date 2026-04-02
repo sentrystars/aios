@@ -6,7 +6,7 @@ struct ConfirmTaskSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Confirm Message Task")
+            Text(sheetTitle)
                 .font(.title2.weight(.semibold))
 
             if let task = appState.selectedTask {
@@ -42,5 +42,13 @@ struct ConfirmTaskSheet: View {
             }
         }
         .padding(24)
+    }
+
+    private var sheetTitle: String {
+        guard let task = appState.selectedTask else { return "Confirm Task" }
+        if task.executionPlan.mode == "message_draft" {
+            return "Confirm Message Task"
+        }
+        return "Confirm Policy-Gated Task"
     }
 }

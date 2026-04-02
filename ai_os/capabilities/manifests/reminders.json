@@ -1,0 +1,10 @@
+{
+  "name": "reminders",
+  "handler": "reminders",
+  "description": "Create and inspect local reminder entries stored inside the workspace.",
+  "risk_level": "low",
+  "confirmation_required": false,
+  "scopes": ["reminders:create", "reminders:list", "reminders:reschedule"],
+  "device_affinity": ["mac_local", "ios_remote"],
+  "evidence_outputs": ["Reminder scheduled"]
+}

@@ -5,8 +5,15 @@ enum Brand {
     static let mint = Color(red: 0.16, green: 0.58, blue: 0.47)
     static let amber = Color(red: 0.89, green: 0.66, blue: 0.24)
     static let ink = Color(red: 0.07, green: 0.14, blue: 0.12)
+    static let coral = Color(red: 0.78, green: 0.28, blue: 0.22)
     static let mist = Color(red: 0.94, green: 0.97, blue: 0.95)
     static let fog = Color(red: 0.98, green: 0.99, blue: 0.98)
+
+    static let action = mint
+    static let active = pine
+    static let waiting = amber
+    static let reference = ink
+    static let danger = coral
 
     static func dashboardGradient(for colorScheme: ColorScheme) -> LinearGradient {
         switch colorScheme {

@@ -1,0 +1,14 @@
+{
+  "name": "claude-code",
+  "adapter": "claude-code",
+  "description": "Development runtime adapter for repository exploration, code edits, shell tasks, and git workflows.",
+  "runtime_type": "development",
+  "supported_capabilities": [
+    "code.execute",
+    "repo.explore",
+    "git.workflow"
+  ],
+  "notes": [
+    "Discovered from runtime manifest."
+  ]
+}

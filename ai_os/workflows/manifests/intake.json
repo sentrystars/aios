@@ -1,0 +1,7 @@
+{
+  "name": "intake",
+  "handler": "intake",
+  "description": "Process raw user input into intent, cognition, and an optional task.",
+  "entrypoint": "IntakeCoordinator.process",
+  "tags": ["inbox", "intent", "planning"]
+}

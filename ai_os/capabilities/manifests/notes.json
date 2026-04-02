@@ -1,0 +1,10 @@
+{
+  "name": "notes",
+  "handler": "notes",
+  "description": "Create a lightweight note payload that can later be routed to files or a notes app.",
+  "risk_level": "low",
+  "confirmation_required": false,
+  "scopes": ["notes:draft"],
+  "device_affinity": ["mac_local", "ios_remote"],
+  "evidence_outputs": ["Prepared note draft"]
+}

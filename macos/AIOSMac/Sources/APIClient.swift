@@ -81,6 +81,33 @@ struct APIClient {
         try await send(path: "/capabilities")
     }
 
+    func fetchRuntimes() async throws -> [RuntimeDescriptor] {
+        try await send(path: "/runtimes")
+    }
+
+    func fetchPlugins() async throws -> [PluginDescriptor] {
+        try await send(path: "/plugins")
+    }
+
+    func fetchWorkflows() async throws -> [WorkflowManifest] {
+        try await send(path: "/workflows")
+    }
+
+    func fetchCapabilityUsage(name: String, limit: Int = 5) async throws -> [UsageTaskSummary] {
+        let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
+        return try await send(path: "/capabilities/\(encoded)/usage?limit=\(limit)")
+    }
+
+    func fetchRuntimeUsage(name: String, limit: Int = 5) async throws -> [UsageTaskSummary] {
+        let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
+        return try await send(path: "/runtimes/\(encoded)/usage?limit=\(limit)")
+    }
+
+    func fetchPluginUsage(name: String, limit: Int = 5) async throws -> [UsageTaskSummary] {
+        let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
+        return try await send(path: "/plugins/\(encoded)/usage?limit=\(limit)")
+    }
+
     func fetchMemories() async throws -> [MemoryRecord] {
         try await send(path: "/memory/facts")
     }
@@ -136,6 +163,16 @@ struct APIClient {
 
     func fetchTaskRuns(id: String, limit: Int = 40) async throws -> [ExecutionRunRecord] {
         try await send(path: "/tasks/\(id)/runs?limit=\(limit)")
+    }
+
+    func fetchTaskRuntimePreview(id: String, runtimeName: String = "claude-code") async throws -> RuntimePreview {
+        let encoded = runtimeName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? runtimeName
+        return try await send(path: "/tasks/\(id)/runtime-preview?runtime_name=\(encoded)")
+    }
+
+    func fetchTaskRuntimeInvocation(id: String, runtimeName: String = "claude-code") async throws -> RuntimeInvocation {
+        let encoded = runtimeName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? runtimeName
+        return try await send(path: "/tasks/\(id)/runtime-invocation?runtime_name=\(encoded)")
     }
 
     func fetchRunEvents(id: String, limit: Int = 40) async throws -> [EventRecord] {

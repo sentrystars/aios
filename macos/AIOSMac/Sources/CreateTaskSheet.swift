@@ -3,6 +3,7 @@ import SwiftUI
 struct CreateTaskSheet: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var appState: AppState
+    private let automaticRuntimeTag = "__auto__"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -44,6 +45,29 @@ struct CreateTaskSheet: View {
                     }
                     .pickerStyle(.segmented)
                 }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Runtime")
+                    .font(.headline)
+                Picker(
+                    "Runtime",
+                    selection: Binding(
+                        get: { appState.createTaskDraft.runtimeName ?? automaticRuntimeTag },
+                        set: { value in
+                            appState.createTaskDraft.runtimeName = value == automaticRuntimeTag ? nil : value
+                        }
+                    )
+                ) {
+                    Text("Automatic").tag(automaticRuntimeTag)
+                    ForEach(appState.runtimes) { runtime in
+                        Text("\(runtime.name) • \(runtime.status)").tag(runtime.name)
+                    }
+                }
+                .pickerStyle(.menu)
+                Text("Leave this on Automatic to let planning infer the runtime.")
+                    .foregroundStyle(.secondary)
+                    .font(.caption)
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -97,5 +121,10 @@ struct CreateTaskSheet: View {
             }
         }
         .padding(24)
+        .task {
+            if appState.runtimes.isEmpty {
+                await appState.reloadRuntimes()
+            }
+        }
     }
 }

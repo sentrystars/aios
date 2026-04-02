@@ -210,6 +210,7 @@ struct TaskRecord: Codable, Identifiable, Sendable {
     var deadline: Date?
     var riskLevel: String
     var executionMode: String
+    var runtimeName: String?
     var executionPlan: ExecutionPlan
     var rollbackPlan: String?
     var blockerReason: String?
@@ -230,6 +231,7 @@ struct TaskRecord: Codable, Identifiable, Sendable {
         case deadline
         case riskLevel = "risk_level"
         case executionMode = "execution_mode"
+        case runtimeName = "runtime_name"
         case executionPlan = "execution_plan"
         case rollbackPlan = "rollback_plan"
         case blockerReason = "blocker_reason"
@@ -262,6 +264,43 @@ struct CapabilityDescriptor: Codable, Identifiable, Sendable {
     }
 }
 
+struct PluginDescriptor: Codable, Identifiable, Hashable, Sendable {
+    var id: String { name }
+    var name: String
+    var description: String
+    var version: String
+    var status: String
+    var runtimes: [String]
+    var capabilities: [String]
+    var workflows: [String]
+    var notes: [String]
+}
+
+struct WorkflowManifest: Codable, Identifiable, Sendable {
+    var id: String { name }
+    var name: String
+    var handler: String
+    var description: String
+    var entrypoint: String
+    var tags: [String]
+}
+
+struct UsageTaskSummary: Codable, Identifiable, Sendable {
+    var id: String
+    var objective: String
+    var status: String
+    var runtimeName: String?
+    var updatedAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case objective
+        case status
+        case runtimeName = "runtime_name"
+        case updatedAt = "updated_at"
+    }
+}
+
 struct CapabilityExecutionRequest: Encodable, Sendable {
     var capabilityName: String
     var action: String
@@ -290,14 +329,79 @@ struct CapabilityExecutionResult: Codable, Sendable {
     }
 }
 
+struct RuntimeDescriptor: Codable, Identifiable, Sendable {
+    var id: String { name }
+    var name: String
+    var description: String
+    var status: String
+    var runtimeType: String
+    var rootPath: String?
+    var supportedCapabilities: [String]
+    var notes: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case description
+        case status
+        case runtimeType = "runtime_type"
+        case rootPath = "root_path"
+        case supportedCapabilities = "supported_capabilities"
+        case notes
+    }
+}
+
+struct RuntimePreview: Codable, Sendable {
+    var runtime: String
+    var status: String
+    var workspaceRoot: String
+    var runtimeRoot: String
+    var commandPreview: String
+    var promptPreview: String
+
+    enum CodingKeys: String, CodingKey {
+        case runtime
+        case status
+        case workspaceRoot = "workspace_root"
+        case runtimeRoot = "runtime_root"
+        case commandPreview = "command_preview"
+        case promptPreview = "prompt_preview"
+    }
+}
+
+struct RuntimeInvocation: Codable, Sendable {
+    var runtime: String
+    var status: String
+    var launchCommand: String
+    var launchArgs: [String]
+    var workingDirectory: String
+    var environmentHints: [String: String]
+    var prompt: String
+    var invocationMode: String
+    var notes: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case runtime
+        case status
+        case launchCommand = "launch_command"
+        case launchArgs = "launch_args"
+        case workingDirectory = "working_directory"
+        case environmentHints = "environment_hints"
+        case prompt
+        case invocationMode = "invocation_mode"
+        case notes
+    }
+}
+
 struct ExecutionPlan: Codable, Sendable {
     var mode: String
+    var runtimeName: String?
     var steps: [ExecutionStep]
     var confirmationRequired: Bool
     var expectedEvidence: [String]
 
     enum CodingKeys: String, CodingKey {
         case mode
+        case runtimeName = "runtime_name"
         case steps
         case confirmationRequired = "confirmation_required"
         case expectedEvidence = "expected_evidence"
@@ -729,6 +833,7 @@ struct CreateTaskRequest: Encodable, Sendable {
     var successCriteria: [String]
     var riskLevel: String
     var linkedGoalIDs: [String] = []
+    var runtimeName: String?
 
     enum CodingKeys: String, CodingKey {
         case objective
@@ -736,6 +841,7 @@ struct CreateTaskRequest: Encodable, Sendable {
         case successCriteria = "success_criteria"
         case riskLevel = "risk_level"
         case linkedGoalIDs = "linked_goal_ids"
+        case runtimeName = "runtime_name"
     }
 }
 

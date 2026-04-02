@@ -1,0 +1,14 @@
+{
+  "name": "claude-code",
+  "description": "Claude Code plugin bridging the development runtime into AI OS task execution.",
+  "version": "0.1.0",
+  "runtimes": [
+    "claude-code"
+  ],
+  "workflows": [
+    "delivery"
+  ],
+  "notes": [
+    "Binds the claude-code runtime manifest into the plugin registry."
+  ]
+}

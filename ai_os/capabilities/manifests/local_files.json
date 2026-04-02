@@ -1,0 +1,10 @@
+{
+  "name": "local_files",
+  "handler": "local_files",
+  "description": "Read, write, and inspect files inside the workspace root only.",
+  "risk_level": "medium",
+  "confirmation_required": false,
+  "scopes": ["files:read", "files:write", "files:list"],
+  "device_affinity": ["mac_local"],
+  "evidence_outputs": ["File read or written inside workspace root"]
+}

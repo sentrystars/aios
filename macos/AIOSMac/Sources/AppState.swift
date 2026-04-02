@@ -61,6 +61,9 @@ final class AppState: ObservableObject {
         case memory
         case reminders
         case capabilities
+        case runtimes
+        case plugins
+        case workflows
         case events
         case selfProfile
         case candidates
@@ -71,7 +74,7 @@ final class AppState: ObservableObject {
             case .overview:
                 return "Overview"
             case .inbox:
-                return "Inbox"
+                return "Conversation"
             case .tasks:
                 return "Tasks"
             case .memory:
@@ -80,6 +83,12 @@ final class AppState: ObservableObject {
                 return "Reminders"
             case .capabilities:
                 return "Capabilities"
+            case .runtimes:
+                return "Runtimes"
+            case .plugins:
+                return "Plugins"
+            case .workflows:
+                return "Workflows"
             case .events:
                 return "Events"
             case .selfProfile:
@@ -139,6 +148,9 @@ final class AppState: ObservableObject {
     @Published var latestGoalPlanResult: GoalPlanResult?
     @Published var reminders: [ReminderRecord] = []
     @Published var capabilities: [CapabilityDescriptor] = []
+    @Published var runtimes: [RuntimeDescriptor] = []
+    @Published var plugins: [PluginDescriptor] = []
+    @Published var workflows: [WorkflowManifest] = []
     @Published var candidates: [CandidateTask] = []
     @Published var latestSchedulerResult: SchedulerTickResult?
     @Published var latestAutoAcceptResult: CandidateBatchAutoAcceptResult?
@@ -150,6 +162,9 @@ final class AppState: ObservableObject {
     @Published var selectedMemoryID: String?
     @Published var selectedReminderID: String?
     @Published var selectedCapabilityName: String?
+    @Published var selectedRuntimeName: String?
+    @Published var selectedPluginName: String?
+    @Published var selectedWorkflowName: String?
     @Published var selectedTaskTimeline: [TimelineItem] = []
     @Published var selectedTaskRelations: [EntityRelation] = []
     @Published var selectedTaskRuns: [ExecutionRunRecord] = []
@@ -158,6 +173,11 @@ final class AppState: ObservableObject {
     @Published var selectedRunTimeline: [TimelineItem] = []
     @Published var selectedRunEvents: [EventRecord] = []
     @Published var latestCapabilityExecutionResult: CapabilityExecutionResult?
+    @Published var latestRuntimePreview: RuntimePreview?
+    @Published var latestRuntimeInvocation: RuntimeInvocation?
+    @Published var capabilityUsage: [UsageTaskSummary] = []
+    @Published var runtimeUsage: [UsageTaskSummary] = []
+    @Published var pluginUsage: [UsageTaskSummary] = []
     @Published var isLoading = false
     @Published var isLoadingTaskContext = false
     @Published var isLoadingMemoryContext = false
@@ -171,6 +191,7 @@ final class AppState: ObservableObject {
     @Published var createGoalDraft = CreateGoalDraft()
     @Published var deviceDraft = DeviceDraft()
     @Published var inboxText = ""
+    @Published var lastSubmittedConversationText = ""
     @Published var latestIntentEvaluation: IntentEvaluation?
     @Published var latestIntakeResponse: IntakeResponse?
     @Published var isProcessingInbox = false
@@ -344,6 +365,72 @@ final class AppState: ObservableObject {
         return capabilities.first(where: { $0.name == selectedCapabilityName }) ?? capabilities.first
     }
 
+    var selectedRuntime: RuntimeDescriptor? {
+        guard let selectedRuntimeName else { return runtimes.first }
+        return runtimes.first(where: { $0.name == selectedRuntimeName }) ?? runtimes.first
+    }
+
+    var selectedPlugin: PluginDescriptor? {
+        guard let selectedPluginName else { return plugins.first }
+        return plugins.first(where: { $0.name == selectedPluginName }) ?? plugins.first
+    }
+
+    var selectedWorkflow: WorkflowManifest? {
+        guard let selectedWorkflowName else { return workflows.first }
+        return workflows.first(where: { $0.name == selectedWorkflowName }) ?? workflows.first
+    }
+
+    var pluginsForSelectedCapability: [PluginDescriptor] {
+        guard let capability = selectedCapability else { return [] }
+        return plugins.filter { $0.capabilities.contains(capability.name) }
+    }
+
+    var pluginsForSelectedRuntime: [PluginDescriptor] {
+        guard let runtime = selectedRuntime else { return [] }
+        return plugins.filter { $0.runtimes.contains(runtime.name) }
+    }
+
+    var pluginsForSelectedWorkflow: [PluginDescriptor] {
+        guard let workflow = selectedWorkflow else { return [] }
+        return plugins.filter { $0.workflows.contains(workflow.name) }
+    }
+
+    var recentTasksForSelectedCapability: [TaskRecord] {
+        guard let capability = selectedCapability else { return [] }
+        return tasks
+            .filter { task in
+                task.executionPlan.steps.contains(where: { $0.capabilityName == capability.name })
+            }
+            .sorted { $0.updatedAt > $1.updatedAt }
+            .prefix(5)
+            .map { $0 }
+    }
+
+    var recentTasksForSelectedRuntime: [TaskRecord] {
+        guard let runtime = selectedRuntime else { return [] }
+        return tasks
+            .filter { task in
+                task.runtimeName == runtime.name || task.executionPlan.runtimeName == runtime.name
+            }
+            .sorted { $0.updatedAt > $1.updatedAt }
+            .prefix(5)
+            .map { $0 }
+    }
+
+    var recentTasksForSelectedPlugin: [TaskRecord] {
+        guard let plugin = selectedPlugin else { return [] }
+        return tasks
+            .filter { task in
+                let usesRuntime = task.runtimeName.map(plugin.runtimes.contains) ?? false
+                    || task.executionPlan.runtimeName.map(plugin.runtimes.contains) ?? false
+                let usesCapability = task.executionPlan.steps.contains(where: { plugin.capabilities.contains($0.capabilityName) })
+                return usesRuntime || usesCapability
+            }
+            .sorted { $0.updatedAt > $1.updatedAt }
+            .prefix(5)
+            .map { $0 }
+    }
+
     var canPlanSelectedTask: Bool {
         guard let task = selectedTask, !isLoading else { return false }
         return !["done", "executing"].contains(task.status)
@@ -351,7 +438,7 @@ final class AppState: ObservableObject {
 
     var canStartSelectedTask: Bool {
         guard let task = selectedTask, !isLoading else { return false }
-        return ["captured", "planned"].contains(task.status)
+        return canStartTask(task)
     }
 
     var canVerifySelectedTask: Bool {
@@ -361,7 +448,7 @@ final class AppState: ObservableObject {
 
     var canConfirmSelectedTask: Bool {
         guard let task = selectedTask else { return false }
-        return task.status == "blocked" && task.executionPlan.mode == "message_draft"
+        return canConfirmTask(task)
     }
 
     var canReflectSelectedTask: Bool {
@@ -410,6 +497,15 @@ final class AppState: ObservableObject {
         }
         if selectedDestination == .capabilities || !capabilities.isEmpty {
             await reloadCapabilities()
+        }
+        if selectedDestination == .runtimes || !runtimes.isEmpty {
+            await reloadRuntimes()
+        }
+        if selectedDestination == .plugins || !plugins.isEmpty {
+            await reloadPlugins()
+        }
+        if selectedDestination == .workflows || !workflows.isEmpty {
+            await reloadWorkflows()
         }
     }
 
@@ -473,6 +569,9 @@ final class AppState: ObservableObject {
             async let loadedGoals = apiClient.fetchGoals()
             async let loadedDevices = apiClient.fetchDevices()
             async let loadedCapabilities = apiClient.fetchCapabilities()
+            async let loadedRuntimes = apiClient.fetchRuntimes()
+            async let loadedPlugins = apiClient.fetchPlugins()
+            async let loadedWorkflows = apiClient.fetchWorkflows()
             _ = try await health
             backendStatus = .connected
             selfProfile = try await profile
@@ -484,6 +583,9 @@ final class AppState: ObservableObject {
             goals = try await loadedGoals
             devices = try await loadedDevices
             capabilities = try await loadedCapabilities
+            runtimes = try await loadedRuntimes
+            plugins = try await loadedPlugins
+            workflows = try await loadedWorkflows
             if selectedTaskID == nil {
                 selectedTaskID = tasks.first?.id
             }
@@ -496,8 +598,21 @@ final class AppState: ObservableObject {
             if selectedCapabilityName == nil {
                 selectedCapabilityName = capabilities.first?.name
             }
+            if selectedRuntimeName == nil {
+                selectedRuntimeName = runtimes.first?.name
+            }
+            if selectedPluginName == nil {
+                selectedPluginName = plugins.first?.name
+            }
+            if selectedWorkflowName == nil {
+                selectedWorkflowName = workflows.first?.name
+            }
             await loadSelectedTaskContext()
             await loadSelectedMemoryContext()
+            await loadSelectedCapabilityUsage()
+            await loadSelectedRuntimePreview()
+            await loadSelectedRuntimeUsage()
+            await loadSelectedPluginUsage()
             latestMemoryRecall = try? await apiClient.recallMemories(query: selfProfile.currentPhase, limit: 3)
             await reloadReminders()
         } catch {
@@ -509,7 +624,10 @@ final class AppState: ObservableObject {
 
     func selectTask(id: String?) {
         selectedTaskID = id
-        Task { await loadSelectedTaskContext() }
+        Task {
+            await loadSelectedTaskContext()
+            await loadSelectedRuntimePreview()
+        }
     }
 
     func selectMemory(id: String?) {
@@ -526,6 +644,24 @@ final class AppState: ObservableObject {
         if capabilityActionText.isEmpty || suggestedCapabilityAction(for: selectedCapability) != capabilityActionText {
             capabilityActionText = suggestedCapabilityAction(for: selectedCapability)
         }
+        Task { await loadSelectedCapabilityUsage() }
+    }
+
+    func selectRuntime(name: String?) {
+        selectedRuntimeName = name
+        Task {
+            await loadSelectedRuntimePreview()
+            await loadSelectedRuntimeUsage()
+        }
+    }
+
+    func selectPlugin(name: String?) {
+        selectedPluginName = name
+        Task { await loadSelectedPluginUsage() }
+    }
+
+    func selectWorkflow(name: String?) {
+        selectedWorkflowName = name
     }
 
     func presentRunInspector(for run: ExecutionRunRecord) {
@@ -552,7 +688,8 @@ final class AppState: ObservableObject {
                     tags: draft.tags,
                     successCriteria: draft.successCriteria,
                     riskLevel: draft.riskLevel,
-                    linkedGoalIDs: draft.linkedGoalIDs
+                    linkedGoalIDs: draft.linkedGoalIDs,
+                    runtimeName: draft.runtimeName
                 )
             )
             isPresentingCreateTask = false
@@ -583,7 +720,8 @@ final class AppState: ObservableObject {
                     tags: ["quick_capture", "menubar"],
                     successCriteria: [],
                     riskLevel: "low",
-                    linkedGoalIDs: []
+                    linkedGoalIDs: [],
+                    runtimeName: nil
                 )
             )
             menuBarQuickTaskTitle = ""
@@ -608,7 +746,8 @@ final class AppState: ObservableObject {
         objective: String,
         successCriteria: [String] = [],
         tags: [String] = [],
-        riskLevel: String = "low"
+        riskLevel: String = "low",
+        runtimeName: String? = nil
     ) {
         showMainWindow()
         errorMessage = nil
@@ -618,6 +757,7 @@ final class AppState: ObservableObject {
         createTaskDraft.tagsText = tags.joined(separator: ", ")
         createTaskDraft.riskLevel = riskLevel
         createTaskDraft.linkedGoalIDs = []
+        createTaskDraft.runtimeName = runtimeName
         isPresentingCreateTask = true
     }
 
@@ -907,6 +1047,61 @@ final class AppState: ObservableObject {
             if capabilityActionText.isEmpty {
                 capabilityActionText = suggestedCapabilityAction(for: selectedCapability)
             }
+            await loadSelectedCapabilityUsage()
+        } catch {
+            backendStatus = .disconnected
+            errorMessage = error.localizedDescription
+        }
+        isLoading = false
+    }
+
+    func reloadRuntimes() async {
+        isLoading = true
+        errorMessage = nil
+        successMessage = nil
+        do {
+            runtimes = try await apiClient.fetchRuntimes()
+            backendStatus = .connected
+            if selectedRuntimeName == nil || runtimes.contains(where: { $0.name == selectedRuntimeName }) == false {
+                selectedRuntimeName = runtimes.first?.name
+            }
+            await loadSelectedRuntimePreview()
+            await loadSelectedRuntimeUsage()
+        } catch {
+            backendStatus = .disconnected
+            errorMessage = error.localizedDescription
+        }
+        isLoading = false
+    }
+
+    func reloadPlugins() async {
+        isLoading = true
+        errorMessage = nil
+        successMessage = nil
+        do {
+            plugins = try await apiClient.fetchPlugins()
+            backendStatus = .connected
+            if selectedPluginName == nil || plugins.contains(where: { $0.name == selectedPluginName }) == false {
+                selectedPluginName = plugins.first?.name
+            }
+            await loadSelectedPluginUsage()
+        } catch {
+            backendStatus = .disconnected
+            errorMessage = error.localizedDescription
+        }
+        isLoading = false
+    }
+
+    func reloadWorkflows() async {
+        isLoading = true
+        errorMessage = nil
+        successMessage = nil
+        do {
+            workflows = try await apiClient.fetchWorkflows()
+            backendStatus = .connected
+            if selectedWorkflowName == nil || workflows.contains(where: { $0.name == selectedWorkflowName }) == false {
+                selectedWorkflowName = workflows.first?.name
+            }
         } catch {
             backendStatus = .disconnected
             errorMessage = error.localizedDescription
@@ -941,6 +1136,73 @@ final class AppState: ObservableObject {
             backendStatus = .disconnected
             errorMessage = error.localizedDescription
             isLoading = false
+        }
+    }
+
+    func loadSelectedRuntimePreview() async {
+        guard let runtime = selectedRuntime, let task = selectedTask else {
+            latestRuntimePreview = nil
+            latestRuntimeInvocation = nil
+            return
+        }
+        do {
+            latestRuntimePreview = try await apiClient.fetchTaskRuntimePreview(id: task.id, runtimeName: runtime.name)
+            latestRuntimeInvocation = try await apiClient.fetchTaskRuntimeInvocation(id: task.id, runtimeName: runtime.name)
+            backendStatus = .connected
+        } catch {
+            latestRuntimePreview = nil
+            latestRuntimeInvocation = nil
+            if backendStatus != .disconnected {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func loadSelectedCapabilityUsage() async {
+        guard let capability = selectedCapability else {
+            capabilityUsage = []
+            return
+        }
+        do {
+            capabilityUsage = try await apiClient.fetchCapabilityUsage(name: capability.name)
+            backendStatus = .connected
+        } catch {
+            capabilityUsage = []
+            if backendStatus != .disconnected {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func loadSelectedRuntimeUsage() async {
+        guard let runtime = selectedRuntime else {
+            runtimeUsage = []
+            return
+        }
+        do {
+            runtimeUsage = try await apiClient.fetchRuntimeUsage(name: runtime.name)
+            backendStatus = .connected
+        } catch {
+            runtimeUsage = []
+            if backendStatus != .disconnected {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func loadSelectedPluginUsage() async {
+        guard let plugin = selectedPlugin else {
+            pluginUsage = []
+            return
+        }
+        do {
+            pluginUsage = try await apiClient.fetchPluginUsage(name: plugin.name)
+            backendStatus = .connected
+        } catch {
+            pluginUsage = []
+            if backendStatus != .disconnected {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -989,7 +1251,7 @@ final class AppState: ObservableObject {
         successMessage = nil
         do {
             latestIntentEvaluation = try await apiClient.evaluateIntent(InputRequest(text: text))
-            successMessage = "Intent evaluated."
+            successMessage = self.text("AI OS has read the request.", "AI OS 已经读完这条需求。")
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -1003,21 +1265,57 @@ final class AppState: ObservableObject {
         errorMessage = nil
         successMessage = nil
         do {
-            let response = try await apiClient.processInbox(InputRequest(text: text))
+            lastSubmittedConversationText = text
+            var response = try await apiClient.processInbox(InputRequest(text: text))
             latestIntakeResponse = response
             latestIntentEvaluation = response.intent
             if let task = response.task {
+                let advancedTask = try await autoAdvanceConversationTask(task)
+                response.task = advancedTask
+                latestIntakeResponse = response
+                inboxText = ""
                 await reloadAll()
-                selectedDestination = .tasks
-                selectTask(id: task.id)
+                selectTask(id: advancedTask.id)
+                if advancedTask.status == "blocked" {
+                    successMessage = self.text("AI OS needs a confirmation before it can continue.", "AI OS 需要你确认后才能继续。")
+                } else if advancedTask.status == "done" {
+                    successMessage = self.text("AI OS has completed this request.", "AI OS 已经完成这条需求。")
+                } else {
+                    successMessage = self.text("AI OS is still working on this request.", "AI OS 正在继续推进这条需求。")
+                }
             } else {
+                inboxText = ""
                 await reloadAll()
+                successMessage = self.text("AI OS has processed the request.", "AI OS 已经处理完这条需求。")
             }
-            successMessage = response.task == nil ? "Inbox processed." : "Inbox processed and task created."
         } catch {
             errorMessage = error.localizedDescription
         }
         isProcessingInbox = false
+    }
+
+    private func autoAdvanceConversationTask(_ task: TaskRecord) async throws -> TaskRecord {
+        var current = task
+
+        if current.status == "captured" {
+            current = try await apiClient.planTask(id: current.id)
+        }
+
+        if current.status == "planned" {
+            current = try await apiClient.startTask(id: current.id)
+        }
+
+        if current.status == "executing" || current.status == "verifying" {
+            current = try await apiClient.verifyTask(
+                id: current.id,
+                request: VerifyTaskRequest(
+                    checks: [],
+                    verifierNotes: "Auto-verified from conversation workflow."
+                )
+            )
+        }
+
+        return current
     }
 
     func planSelectedTask() async {
@@ -1033,15 +1331,13 @@ final class AppState: ObservableObject {
 
     func startSelectedTask() async {
         guard let task = selectedTask else { return }
-        guard canStartSelectedTask else {
+        guard canStartTask(task) else {
             errorMessage = task.status == "done"
                 ? "This task is already done and cannot be started again."
                 : "Task in status '\(task.status)' cannot be started."
             return
         }
-        await mutateTask(task.id) { client, id in
-            try await client.startTask(id: id)
-        }
+        await startTask(id: task.id)
     }
 
     func verifySelectedTask() async {
@@ -1072,6 +1368,10 @@ final class AppState: ObservableObject {
 
     func confirmSelectedTask(approved: Bool) async {
         guard let task = selectedTask else { return }
+        guard canConfirmTask(task) else {
+            errorMessage = "Task in status '\(task.status)' cannot be confirmed."
+            return
+        }
         let note = confirmationDraft.note.nilIfBlank
         await mutateTask(task.id) { client, id in
             try await client.confirmTask(
@@ -1089,6 +1389,26 @@ final class AppState: ObservableObject {
                 route: .task,
                 taskID: task.id
             )
+        }
+    }
+
+    func startTask(id: String?) async {
+        guard let id, let task = tasks.first(where: { $0.id == id }) else { return }
+        guard canStartTask(task) else {
+            errorMessage = task.status == "done"
+                ? "This task is already done and cannot be started again."
+                : "Task in status '\(task.status)' cannot be started."
+            return
+        }
+        await mutateTask(id) { client, taskID in
+            if task.status == "captured" {
+                _ = try await client.planTask(id: taskID)
+            }
+            return try await client.startTask(id: taskID)
+        }
+        if selectedRun?.taskID == id {
+            selectedRun = selectedTaskRuns.first
+            await loadSelectedRunContext()
         }
     }
 
@@ -1258,6 +1578,16 @@ final class AppState: ObservableObject {
         isLoading = false
     }
 
+    private func canStartTask(_ task: TaskRecord) -> Bool {
+        ["captured", "planned"].contains(task.status)
+    }
+
+    private func canConfirmTask(_ task: TaskRecord) -> Bool {
+        guard task.status == "blocked" else { return false }
+        return task.executionPlan.mode == "message_draft"
+            || task.blockerReason == "Awaiting policy confirmation before external side effect."
+    }
+
     func loadSelectedTaskContext() async {
         guard let task = selectedTask else {
             selectedTaskTimeline = []
@@ -1390,6 +1720,78 @@ final class AppState: ObservableObject {
 
         selectedMemoryID = id
         await loadSelectedMemoryContext()
+    }
+
+    func openCapability(name: String?) async {
+        showMainWindow()
+        selectedDestination = .capabilities
+
+        guard let name, !name.isEmpty else { return }
+
+        if !capabilities.contains(where: { $0.name == name }) {
+            await reloadCapabilities()
+        }
+
+        guard capabilities.contains(where: { $0.name == name }) else {
+            errorMessage = "Capability \(name) was not found."
+            return
+        }
+
+        selectedCapabilityName = name
+    }
+
+    func openRuntime(name: String?) async {
+        showMainWindow()
+        selectedDestination = .runtimes
+
+        guard let name, !name.isEmpty else { return }
+
+        if !runtimes.contains(where: { $0.name == name }) {
+            await reloadRuntimes()
+        }
+
+        guard runtimes.contains(where: { $0.name == name }) else {
+            errorMessage = "Runtime \(name) was not found."
+            return
+        }
+
+        selectRuntime(name: name)
+    }
+
+    func openWorkflow(name: String?) async {
+        showMainWindow()
+        selectedDestination = .workflows
+
+        guard let name, !name.isEmpty else { return }
+
+        if !workflows.contains(where: { $0.name == name }) {
+            await reloadWorkflows()
+        }
+
+        guard workflows.contains(where: { $0.name == name }) else {
+            errorMessage = "Workflow \(name) was not found."
+            return
+        }
+
+        selectedWorkflowName = name
+    }
+
+    func openPlugin(name: String?) async {
+        showMainWindow()
+        selectedDestination = .plugins
+
+        guard let name, !name.isEmpty else { return }
+
+        if !plugins.contains(where: { $0.name == name }) {
+            await reloadPlugins()
+        }
+
+        guard plugins.contains(where: { $0.name == name }) else {
+            errorMessage = "Plugin \(name) was not found."
+            return
+        }
+
+        selectedPluginName = name
     }
 
     func handleNotificationResponse(route: String?, taskID: String?) async {
@@ -1537,8 +1939,16 @@ struct CreateTaskDraft {
     var tagsText = ""
     var riskLevel = "low"
     var linkedGoalIDs: [String] = []
+    var runtimeName: String? = nil
 
-    var normalized: (objective: String, successCriteria: [String], tags: [String], riskLevel: String, linkedGoalIDs: [String]) {
+    var normalized: (
+        objective: String,
+        successCriteria: [String],
+        tags: [String],
+        riskLevel: String,
+        linkedGoalIDs: [String],
+        runtimeName: String?
+    ) {
         (
             objective.trimmingCharacters(in: .whitespacesAndNewlines),
             successCriteriaText
@@ -1550,7 +1960,8 @@ struct CreateTaskDraft {
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty },
             riskLevel,
-            linkedGoalIDs
+            linkedGoalIDs,
+            runtimeName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank
         )
     }
 }

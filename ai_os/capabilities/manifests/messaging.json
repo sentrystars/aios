@@ -1,0 +1,10 @@
+{
+  "name": "messaging",
+  "handler": "messaging",
+  "description": "Prepare outbound messages while enforcing confirmation for delivery.",
+  "risk_level": "high",
+  "confirmation_required": true,
+  "scopes": ["messaging:prepare"],
+  "device_affinity": ["mac_local", "ios_remote"],
+  "evidence_outputs": ["Drafted outbound message"]
+}
