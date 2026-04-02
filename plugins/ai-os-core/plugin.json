@@ -5,9 +5,15 @@
   "capabilities": [
     "local_files",
     "reminders",
+    "aios_local_reminders",
     "calendar",
+    "aios_local_calendar",
     "notes",
-    "messaging"
+    "messaging",
+    "aios_local_messaging",
+    "system_reminders",
+    "system_calendar",
+    "system_messaging"
   ],
   "workflows": [
     "intake",

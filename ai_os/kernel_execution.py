@@ -362,7 +362,7 @@ class CognitionEngine:
                 runtime_name=runtime_name,
                 steps=[
                     ExecutionStep(
-                        capability_name="messaging",
+                        capability_name="aios_local_messaging",
                         action="prepare",
                         purpose="Prepare the outbound message without sending it.",
                     )
@@ -376,7 +376,7 @@ class CognitionEngine:
                 runtime_name=runtime_name,
                 steps=[
                     ExecutionStep(
-                        capability_name="reminders",
+                        capability_name="aios_local_reminders",
                         action="create",
                         purpose="Create a local reminder entry for future follow-up.",
                     )
@@ -390,9 +390,9 @@ class CognitionEngine:
                 runtime_name=runtime_name,
                 steps=[
                     ExecutionStep(
-                        capability_name="calendar",
+                        capability_name="aios_local_calendar",
                         action="create",
-                        purpose="Place the work onto the local calendar as a concrete time block.",
+                        purpose="Place the work onto the AIOS local calendar as a concrete time block.",
                     )
                 ],
                 confirmation_required=False,
@@ -499,6 +499,7 @@ class TaskEngine:
         task_data["runtime_name"] = runtime_name
         task_data["execution_plan"] = payload.execution_plan or self.build_execution_plan(mode, runtime_name=runtime_name)
         task = TaskRecord(id=str(uuid4()), **task_data)
+        self._apply_capability_routing(task)
         if not task.implementation_contract:
             task.implementation_contract = self._build_implementation_contract(task)
         self.events.append("task.created", task.model_dump(mode="json"))
@@ -551,6 +552,7 @@ class TaskEngine:
         task.execution_mode = self._resolve_execution_mode(task.objective)
         task.runtime_name = self._resolve_runtime_name(task.objective, task.execution_mode)
         task.execution_plan = self.build_execution_plan(task.execution_mode, runtime_name=task.runtime_name)
+        self._apply_capability_routing(task)
         task.success_criteria = self._augment_success_criteria(task)
         task.implementation_contract = self._build_implementation_contract(task)
         task.status = TaskStatus.PLANNED
@@ -703,6 +705,63 @@ class TaskEngine:
             return self.repo.get(tag.split(":", 1)[1])
         return None
 
+    def _apply_capability_routing(self, task: TaskRecord) -> None:
+        if not task.execution_plan.steps:
+            return
+        if task.execution_mode == ExecutionMode.CALENDAR_EVENT and self._prefers_system_calendar(task):
+            task.execution_plan.steps[0].capability_name = "system_calendar"
+            if "target:system_calendar" not in task.tags:
+                task.tags.append("target:system_calendar")
+            return
+        if task.execution_mode == ExecutionMode.REMINDER and self._prefers_system_reminders(task):
+            task.execution_plan.steps[0].capability_name = "system_reminders"
+            if "target:system_reminders" not in task.tags:
+                task.tags.append("target:system_reminders")
+
+    @staticmethod
+    def _prefers_system_calendar(task: TaskRecord) -> bool:
+        fields: list[str] = [task.objective]
+        if task.intelligence_trace:
+            for key in ("explicit_constraints", "inferred_constraints", "suggested_task_tags"):
+                value = task.intelligence_trace.get(key, [])
+                if isinstance(value, list):
+                    fields.extend(str(item) for item in value if item)
+        fields.extend(task.tags)
+        lowered = " ".join(fields).lower()
+        triggers = (
+            "system calendar",
+            "mac calendar",
+            "calendar.app",
+            "apple calendar",
+            "系统日历",
+            "mac日历",
+            "苹果日历",
+            "系统日程",
+        )
+        return any(token in lowered for token in triggers)
+
+    @staticmethod
+    def _prefers_system_reminders(task: TaskRecord) -> bool:
+        fields: list[str] = [task.objective]
+        if task.intelligence_trace:
+            for key in ("explicit_constraints", "inferred_constraints", "suggested_task_tags"):
+                value = task.intelligence_trace.get(key, [])
+                if isinstance(value, list):
+                    fields.extend(str(item) for item in value if item)
+        fields.extend(task.tags)
+        lowered = " ".join(fields).lower()
+        triggers = (
+            "system reminders",
+            "reminders app",
+            "apple reminders",
+            "system reminder",
+            "系统提醒",
+            "系统提醒事项",
+            "苹果提醒",
+            "提醒事项 app",
+        )
+        return any(token in lowered for token in triggers)
+
     def _source_task_subtasks(self, task: TaskRecord) -> list[str]:
         source_task = self._source_task(task)
         if not source_task:
@@ -735,18 +794,21 @@ class TaskEngine:
                 preferred_runtime=task.runtime_name or task.execution_plan.runtime_name,
             )
         if task.execution_mode == ExecutionMode.CALENDAR_EVENT:
+            calendar_capability = task.execution_plan.steps[0].capability_name if task.execution_plan.steps else "aios_local_calendar"
+            execution_scope = "system_calendar" if calendar_capability == "system_calendar" else "local_calendar"
+            expected_output = "System calendar event scheduled" if execution_scope == "system_calendar" else "Calendar event scheduled"
             return ImplementationTaskContract(
                 summary=task.objective,
                 deliverable_type="calendar_event",
-                execution_scope="local_calendar",
+                execution_scope=execution_scope,
                 acceptance_criteria=task.success_criteria,
                 constraints=task.verification_notes,
                 planned_subtasks=task.subtasks,
-                expected_outputs=["Calendar event scheduled"],
+                expected_outputs=[expected_output],
                 output_requirements=[
                     ImplementationTaskContract.OutputRequirement(
                         key="calendar_event",
-                        label="Calendar event scheduled",
+                        label=expected_output,
                         source="calendar_verification",
                     )
                 ],
@@ -754,18 +816,21 @@ class TaskEngine:
                 preferred_runtime=task.runtime_name or task.execution_plan.runtime_name,
             )
         if task.execution_mode == ExecutionMode.REMINDER:
+            reminder_capability = task.execution_plan.steps[0].capability_name if task.execution_plan.steps else "aios_local_reminders"
+            execution_scope = "system_reminders" if reminder_capability == "system_reminders" else "local_reminders"
+            expected_output = "System reminder scheduled" if execution_scope == "system_reminders" else "Reminder created"
             return ImplementationTaskContract(
                 summary=task.objective,
                 deliverable_type="reminder",
-                execution_scope="local_reminders",
+                execution_scope=execution_scope,
                 acceptance_criteria=task.success_criteria,
                 constraints=[],
                 planned_subtasks=task.subtasks,
-                expected_outputs=["Reminder created"],
+                expected_outputs=[expected_output],
                 output_requirements=[
                     ImplementationTaskContract.OutputRequirement(
                         key="reminder",
-                        label="Reminder created",
+                        label=expected_output,
                         source="reminder_verification",
                     )
                 ],

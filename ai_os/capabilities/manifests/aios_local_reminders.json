@@ -1,0 +1,10 @@
+{
+  "name": "aios_local_reminders",
+  "handler": "aios_local_reminders",
+  "description": "Create and inspect reminder entries stored by AIOS inside the workspace.",
+  "risk_level": "low",
+  "confirmation_required": false,
+  "scopes": ["aios_local_reminders:create", "aios_local_reminders:list", "aios_local_reminders:reschedule"],
+  "device_affinity": ["mac_local", "ios_remote"],
+  "evidence_outputs": ["AIOS local reminder scheduled"]
+}

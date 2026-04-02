@@ -1,0 +1,10 @@
+{
+  "name": "aios_local_messaging",
+  "handler": "aios_local_messaging",
+  "description": "Prepare outbound message drafts inside AIOS without sending them to a system service.",
+  "risk_level": "high",
+  "confirmation_required": true,
+  "scopes": ["aios_local_messaging:prepare"],
+  "device_affinity": ["mac_local", "ios_remote"],
+  "evidence_outputs": ["AIOS local outbound message drafted"]
+}

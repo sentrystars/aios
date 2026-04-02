@@ -1,7 +1,7 @@
 {
   "name": "reminders",
   "handler": "reminders",
-  "description": "Create and inspect local reminder entries stored inside the workspace.",
+  "description": "Compatibility alias for AIOS local reminder entries stored inside the workspace.",
   "risk_level": "low",
   "confirmation_required": false,
   "scopes": ["reminders:create", "reminders:list", "reminders:reschedule"],

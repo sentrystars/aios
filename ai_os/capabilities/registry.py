@@ -7,8 +7,15 @@ from ai_os.domain import CapabilityDescriptor, CapabilityExecutionPayload, Capab
 
 from .base import CapabilityHandler
 from .local_files import LocalFilesCapability
-from .messaging import MessagingCapability, NotesCapability
-from .scheduling import CalendarCapability, RemindersCapability
+from .messaging import AIOSLocalMessagingCapability, MessagingCapability, NotesCapability, SystemMessagingCapability
+from .scheduling import (
+    AIOSLocalCalendarCapability,
+    AIOSLocalRemindersCapability,
+    CalendarCapability,
+    RemindersCapability,
+    SystemCalendarCapability,
+    SystemRemindersCapability,
+)
 
 
 class CapabilityRegistry:
@@ -18,10 +25,16 @@ class CapabilityRegistry:
         self._handlers: dict[str, CapabilityHandler] = {}
         self._handler_factories = {
             "local_files": lambda manifest: LocalFilesCapability(workspace_root),
+            "aios_local_reminders": lambda manifest: AIOSLocalRemindersCapability(workspace_root),
             "reminders": lambda manifest: RemindersCapability(workspace_root),
+            "system_reminders": lambda manifest: SystemRemindersCapability(),
+            "aios_local_calendar": lambda manifest: AIOSLocalCalendarCapability(workspace_root),
             "calendar": lambda manifest: CalendarCapability(workspace_root),
+            "system_calendar": lambda manifest: SystemCalendarCapability(),
             "notes": lambda manifest: NotesCapability(),
+            "aios_local_messaging": lambda manifest: AIOSLocalMessagingCapability(),
             "messaging": lambda manifest: MessagingCapability(),
+            "system_messaging": lambda manifest: SystemMessagingCapability(),
         }
         self._discover()
 

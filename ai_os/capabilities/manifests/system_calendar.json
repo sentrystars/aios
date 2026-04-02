@@ -1,0 +1,10 @@
+{
+  "name": "system_calendar",
+  "handler": "system_calendar",
+  "description": "Bridge AIOS scheduling into the host system calendar service.",
+  "risk_level": "high",
+  "confirmation_required": true,
+  "scopes": ["system_calendar:create", "system_calendar:list", "system_calendar:reschedule", "system_calendar:delete"],
+  "device_affinity": ["mac_local", "ios_remote"],
+  "evidence_outputs": ["System calendar event scheduled"]
+}

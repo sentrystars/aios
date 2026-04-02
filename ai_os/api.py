@@ -72,6 +72,13 @@ def create_app(data_dir: Path = Path(".data")) -> FastAPI:
         runtime_registry=container.runtime_registry,
         policy_engine=container.policy_engine,
     )
+    from ai_os.workflows import ConversationCoordinator
+
+    conversation = ConversationCoordinator(
+        intake=intake,
+        task_engine=container.task_engine,
+        delivery=delivery,
+    )
     events = EventQueryService(container.event_repo)
     candidates = CandidateTaskService(
         container.self_kernel,
@@ -99,6 +106,17 @@ def create_app(data_dir: Path = Path(".data")) -> FastAPI:
         tasks = [task for task in container.task_engine.list() if predicate(task)]
         tasks.sort(key=lambda item: item.updated_at, reverse=True)
         return summarize_tasks(tasks[:limit])
+
+    def capability_name_variants(name: str) -> set[str]:
+        variants = {
+            "calendar": {"calendar", "aios_local_calendar"},
+            "aios_local_calendar": {"calendar", "aios_local_calendar"},
+            "reminders": {"reminders", "aios_local_reminders"},
+            "aios_local_reminders": {"reminders", "aios_local_reminders"},
+            "messaging": {"messaging", "aios_local_messaging"},
+            "aios_local_messaging": {"messaging", "aios_local_messaging"},
+        }
+        return variants.get(name, {name})
 
     @app.get("/healthz")
     def healthcheck() -> dict[str, str]:
@@ -171,6 +189,10 @@ def create_app(data_dir: Path = Path(".data")) -> FastAPI:
     def process_input(payload: InputPayload):
         return intake.process(payload)
 
+    @app.post("/conversation/submit")
+    def submit_conversation(payload: InputPayload):
+        return conversation.submit(payload)
+
     @app.post("/tasks")
     def create_task(payload: TaskCreatePayload):
         return container.task_engine.create(payload)
@@ -227,8 +249,9 @@ def create_app(data_dir: Path = Path(".data")) -> FastAPI:
 
     @app.get("/capabilities/{capability_name}/usage", response_model=list[UsageTaskSummary])
     def get_capability_usage(capability_name: str, limit: int = 5):
+        acceptable_names = capability_name_variants(capability_name)
         return recent_usage_tasks(
-            lambda task: any(step.capability_name == capability_name for step in task.execution_plan.steps),
+            lambda task: any(step.capability_name in acceptable_names for step in task.execution_plan.steps),
             limit,
         )
 
@@ -268,11 +291,14 @@ def create_app(data_dir: Path = Path(".data")) -> FastAPI:
         plugin = plugins.get(plugin_name)
         if plugin is None:
             raise HTTPException(status_code=404, detail=f"Plugin {plugin_name} not found.")
+        plugin_capability_names: set[str] = set()
+        for name in plugin.capabilities:
+            plugin_capability_names.update(capability_name_variants(name))
         return recent_usage_tasks(
             lambda task: (
                 (task.runtime_name in plugin.runtimes if task.runtime_name else False)
                 or (task.execution_plan.runtime_name in plugin.runtimes if task.execution_plan.runtime_name else False)
-                or any(step.capability_name in plugin.capabilities for step in task.execution_plan.steps)
+                or any(step.capability_name in plugin_capability_names for step in task.execution_plan.steps)
             ),
             limit,
         )

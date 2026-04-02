@@ -1,7 +1,7 @@
 {
   "name": "messaging",
   "handler": "messaging",
-  "description": "Prepare outbound messages while enforcing confirmation for delivery.",
+  "description": "Compatibility alias for AIOS local message drafting with confirmation.",
   "risk_level": "high",
   "confirmation_required": true,
   "scopes": ["messaging:prepare"],

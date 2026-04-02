@@ -310,6 +310,11 @@ private struct OverviewView: View {
                                 HStack {
                                     StatusBadge(label: appState.displayToken(task.status, category: .taskStatus), color: Brand.active)
                                     StatusBadge(label: appState.displayToken(task.executionMode, category: .executionMode), color: Brand.waiting)
+                                    if task.implementationContract?.executionScope.contains("system_calendar") == true {
+                                        StatusBadge(label: appState.text("system calendar", "系统日历"), color: Brand.reference)
+                                    } else if task.implementationContract?.executionScope.contains("local_calendar") == true {
+                                        StatusBadge(label: appState.text("local calendar", "本地日程"), color: Brand.pine)
+                                    }
                                 }
                                 Text(task.blockerReason?.isEmpty == false ? task.blockerReason! : appState.text("This is the newest active task in your loop. Open it to keep momentum.", "这是你当前循环中最新的活跃任务。打开它继续推进。"))
                                     .foregroundStyle(.secondary)
@@ -594,9 +599,8 @@ private struct InboxWorkbenchView: View {
                 }
 
                 ZStack(alignment: .topLeading) {
-                    TextEditor(text: $appState.inboxText)
-                        .font(.body)
-                        .frame(minHeight: 220)
+                    CompactTextEditor(text: $appState.inboxText)
+                        .frame(height: 72)
                         .padding(12)
                         .background(
                             RoundedRectangle(cornerRadius: 20)
@@ -905,9 +909,9 @@ private struct InboxWorkbenchView: View {
             case "done":
                 switch task.executionMode {
                 case "calendar_event":
-                    return appState.text("AIOS has already placed this on your calendar. You can review the created task and schedule on the right.", "AIOS 已经把这件事放进日历了。你可以在右侧查看生成的任务和时间安排。")
+                    return appState.text("AIOS has completed this scheduling task in its local calendar. You can review the task and scheduled record on the right.", "AIOS 已经在本地日程中完成这条安排。你可以在右侧查看任务和生成的日程记录。")
                 case "reminder":
-                    return appState.text("AIOS has created the reminder and completed the request.", "AIOS 已经创建提醒并完成这条需求。")
+                    return appState.text("AIOS has created the reminder record and completed the request.", "AIOS 已经创建提醒记录并完成这条需求。")
                 default:
                     return appState.text("AIOS has completed this request. You can review the result on the right.", "AIOS 已经完成这条需求。你可以在右侧查看结果。")
                 }
@@ -3462,6 +3466,11 @@ private struct TaskDetailView: View {
                                     StatusBadge(label: appState.displayToken(task.status, category: .taskStatus), color: color(for: task.status))
                                     StatusBadge(label: appState.displayToken(task.riskLevel, category: .riskLevel), color: Brand.waiting)
                                     StatusBadge(label: appState.displayToken(task.executionMode, category: .executionMode), color: Brand.active)
+                                    if task.implementationContract?.executionScope.contains("system_calendar") == true {
+                                        StatusBadge(label: appState.text("system calendar", "系统日历"), color: Brand.reference)
+                                    } else if task.implementationContract?.executionScope.contains("local_calendar") == true {
+                                        StatusBadge(label: appState.text("local calendar", "本地日程"), color: Brand.pine)
+                                    }
                                 }
                             }
                             Spacer()
@@ -3477,6 +3486,9 @@ private struct TaskDetailView: View {
                                 executionLine(appState.text("Owner", "执行者"), task.owner)
                                 executionLine(appState.text("Updated", "最近更新"), task.updatedAt.formatted(date: .abbreviated, time: .shortened))
                                 executionLine(appState.text("Runtime", "运行时"), task.runtimeName ?? task.executionPlan.runtimeName ?? appState.text("Automatic", "自动选择"))
+                                if let scope = friendlyExecutionScope(for: task) {
+                                    executionLine(appState.text("Execution Scope", "执行范围"), scope)
+                                }
                                 if let blockerReason = task.blockerReason, !blockerReason.isEmpty {
                                     executionLine(appState.text("Current Blocker", "当前阻塞"), blockerReason)
                                 } else {
@@ -3581,6 +3593,31 @@ private struct TaskDetailView: View {
         }
     }
 
+    private func friendlyExecutionScope(for task: TaskRecord) -> String? {
+        guard let scopes = task.implementationContract?.executionScope, !scopes.isEmpty else {
+            return nil
+        }
+        let scope = scopes.joined(separator: ",")
+        switch scope {
+        case let value where value.contains("system_calendar"):
+            return appState.text("System Calendar", "系统日历")
+        case let value where value.contains("local_calendar"):
+            return appState.text("AIOS Local Calendar", "AIOS 本地日程")
+        case let value where value.contains("local_reminders"):
+            return appState.text("AIOS Local Reminders", "AIOS 本地提醒")
+        case let value where value.contains("communication"):
+            return appState.text("Communication Draft", "消息草稿")
+        case let value where value.contains("memory"):
+            return appState.text("AIOS Memory", "AIOS 记忆")
+        case let value where value.contains("repository"):
+            return appState.text("Repository", "仓库")
+        case let value where value.contains("workspace_artifact"):
+            return appState.text("Workspace Artifact", "工作区产物")
+        default:
+            return scope
+        }
+    }
+
     private func detailSection(_ title: String, items: [String], empty: String) -> some View {
         GlassPanel(title: title) {
             if items.isEmpty {
@@ -3607,6 +3644,7 @@ private struct TaskDetailView: View {
         let mode = trace["execution_mode"]?.stringValue ?? task.executionMode
         let rationale = trace["rationale"]?.stringValue
         let constraints = trace["constraints"]?.stringArrayValue ?? []
+        let scope = friendlyExecutionScope(for: task)
 
         GlassPanel(title: appState.text("Intelligence Overview", "认知摘要")) {
             VStack(alignment: .leading, spacing: 12) {
@@ -3622,6 +3660,9 @@ private struct TaskDetailView: View {
                     }
                 }
                 executionLine(appState.text("Execution Mode", "执行模式"), mode)
+                if let scope, !scope.isEmpty {
+                    executionLine(appState.text("Execution Scope", "执行范围"), scope)
+                }
                 executionLine(appState.text("Runtime Decision", "运行时决策"), runtime ?? appState.text("Automatic", "自动选择"))
                 if let rationale, !rationale.isEmpty {
                     executionLine(appState.text("Why This Path", "为何这么做"), rationale)
@@ -3640,6 +3681,9 @@ private struct TaskDetailView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     executionLine(appState.text("Summary", "摘要"), contract.summary)
                     executionLine(appState.text("Deliverable Type", "交付类型"), contract.deliverableType)
+                    if let scope = friendlyExecutionScope(for: task) {
+                        executionLine(appState.text("Execution Scope Summary", "执行范围摘要"), scope)
+                    }
                     if let preferredRuntime = contract.preferredRuntime, !preferredRuntime.isEmpty {
                         executionLine(appState.text("Preferred Runtime", "首选运行时"), preferredRuntime)
                     }
@@ -4175,6 +4219,9 @@ private struct RunInspectorSheet: View {
             if let executionMode, !executionMode.isEmpty {
                 inspectorLine(appState.text("Execution Mode", "执行模式"), executionMode)
             }
+            if let executionScope = trace["execution_scope"]?.stringValue, !executionScope.isEmpty {
+                inspectorLine(appState.text("Execution Scope", "执行范围"), executionScope)
+            }
             if let runtimeName, !runtimeName.isEmpty {
                 inspectorLine(appState.text("Runtime", "运行时"), runtimeName)
             }
@@ -4235,6 +4282,31 @@ private struct RunInspectorSheet: View {
                 inspectorLine(appState.text("Suggested Next Step", "建议下一步"), nextStep)
             }
             structuredMetadataSection(appState.text("Raw Result", "原始结果"), value: .object(result))
+        }
+    }
+
+    private func friendlyExecutionScope(for task: TaskRecord) -> String? {
+        guard let scopes = task.implementationContract?.executionScope, !scopes.isEmpty else {
+            return nil
+        }
+        let scope = scopes.joined(separator: ",")
+        switch scope {
+        case let value where value.contains("system_calendar"):
+            return appState.text("System Calendar", "系统日历")
+        case let value where value.contains("local_calendar"):
+            return appState.text("AIOS Local Calendar", "AIOS 本地日程")
+        case let value where value.contains("local_reminders"):
+            return appState.text("AIOS Local Reminders", "AIOS 本地提醒")
+        case let value where value.contains("communication"):
+            return appState.text("Communication Draft", "消息草稿")
+        case let value where value.contains("memory"):
+            return appState.text("AIOS Memory", "AIOS 记忆")
+        case let value where value.contains("repository"):
+            return appState.text("Repository", "仓库")
+        case let value where value.contains("workspace_artifact"):
+            return appState.text("Workspace Artifact", "工作区产物")
+        default:
+            return scope
         }
     }
 
@@ -4836,6 +4908,67 @@ private struct BrandSectionTitle: View {
             Text(subtitle)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+        }
+    }
+}
+
+private struct CompactTextEditor: NSViewRepresentable {
+    @Binding var text: String
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text)
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+        scrollView.hasVerticalScroller = false
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+
+        let textView = NSTextView()
+        textView.isRichText = false
+        textView.importsGraphics = false
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
+        textView.isAutomaticTextReplacementEnabled = false
+        textView.isContinuousSpellCheckingEnabled = false
+        textView.allowsUndo = true
+        textView.drawsBackground = false
+        textView.font = .systemFont(ofSize: NSFont.systemFontSize)
+        textView.textContainerInset = NSSize(width: 0, height: 4)
+        textView.delegate = context.coordinator
+        textView.string = text
+
+        if let textContainer = textView.textContainer {
+            textContainer.widthTracksTextView = true
+            textContainer.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
+        }
+
+        scrollView.documentView = textView
+        context.coordinator.textView = textView
+        return scrollView
+    }
+
+    func updateNSView(_ nsView: NSScrollView, context: Context) {
+        guard let textView = context.coordinator.textView else { return }
+        if textView.string != text {
+            textView.string = text
+        }
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        @Binding var text: String
+        weak var textView: NSTextView?
+
+        init(text: Binding<String>) {
+            _text = text
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView else { return }
+            text = textView.string
         }
     }
 }

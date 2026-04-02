@@ -132,7 +132,16 @@ def build_container(data_dir: Path) -> KernelContainer:
                 name="Local Mac",
                 device_class="mac_local",
                 status=DeviceStatus.ACTIVE,
-                capabilities=["local_files", "notes", "messaging", "reminders", "calendar"],
+                capabilities=[
+                    "local_files",
+                    "notes",
+                    "aios_local_messaging",
+                    "aios_local_reminders",
+                    "aios_local_calendar",
+                    "system_messaging",
+                    "system_reminders",
+                    "system_calendar",
+                ],
                 metadata={"bootstrap": True},
             )
         )

@@ -1,7 +1,7 @@
 {
   "name": "calendar",
   "handler": "calendar",
-  "description": "Create and inspect local calendar events stored inside the workspace.",
+  "description": "Compatibility alias for AIOS local calendar events stored inside the workspace.",
   "risk_level": "medium",
   "confirmation_required": false,
   "scopes": ["calendar:create", "calendar:list", "calendar:reschedule", "calendar:delete", "calendar:mark_seen"],

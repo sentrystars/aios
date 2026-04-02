@@ -1266,19 +1266,16 @@ final class AppState: ObservableObject {
         successMessage = nil
         do {
             lastSubmittedConversationText = text
-            var response = try await apiClient.processInbox(InputRequest(text: text))
+            let response = try await apiClient.submitConversation(InputRequest(text: text))
             latestIntakeResponse = response
             latestIntentEvaluation = response.intent
             if let task = response.task {
-                let advancedTask = try await autoAdvanceConversationTask(task)
-                response.task = advancedTask
-                latestIntakeResponse = response
                 inboxText = ""
                 await reloadAll()
-                selectTask(id: advancedTask.id)
-                if advancedTask.status == "blocked" {
+                selectTask(id: task.id)
+                if task.status == "blocked" {
                     successMessage = self.text("AIOS needs a confirmation before it can continue.", "AIOS 需要你确认后才能继续。")
-                } else if advancedTask.status == "done" {
+                } else if task.status == "done" {
                     successMessage = self.text("AIOS has completed this request.", "AIOS 已经完成这条需求。")
                 } else {
                     successMessage = self.text("AIOS is still working on this request.", "AIOS 正在继续推进这条需求。")
@@ -1292,30 +1289,6 @@ final class AppState: ObservableObject {
             errorMessage = error.localizedDescription
         }
         isProcessingInbox = false
-    }
-
-    private func autoAdvanceConversationTask(_ task: TaskRecord) async throws -> TaskRecord {
-        var current = task
-
-        if current.status == "captured" {
-            current = try await apiClient.planTask(id: current.id)
-        }
-
-        if current.status == "planned" {
-            current = try await apiClient.startTask(id: current.id)
-        }
-
-        if current.status == "executing" || current.status == "verifying" {
-            current = try await apiClient.verifyTask(
-                id: current.id,
-                request: VerifyTaskRequest(
-                    checks: [],
-                    verifierNotes: "Auto-verified from conversation workflow."
-                )
-            )
-        }
-
-        return current
     }
 
     func planSelectedTask() async {
@@ -1853,13 +1826,13 @@ final class AppState: ObservableObject {
         switch capability?.name {
         case "local_files":
             return "list_dir"
-        case "reminders":
+        case "reminders", "aios_local_reminders", "system_reminders":
             return "list"
-        case "calendar":
+        case "calendar", "aios_local_calendar", "system_calendar":
             return "list"
         case "notes":
             return "draft"
-        case "messaging":
+        case "messaging", "aios_local_messaging", "system_messaging":
             return "prepare"
         default:
             return ""

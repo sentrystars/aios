@@ -41,7 +41,7 @@ from ai_os.storage import (
     SelfRepository,
     TaskRepository,
 )
-from ai_os.workflows import DeliveryCoordinator, IntakeCoordinator
+from ai_os.workflows import ConversationCoordinator, DeliveryCoordinator, IntakeCoordinator
 
 __all__ = [
     "CalendarCapability",
@@ -50,6 +50,7 @@ __all__ = [
     "CapabilityHandler",
     "CapabilityRegistry",
     "CognitionEngine",
+    "ConversationCoordinator",
     "Database",
     "DeliveryCoordinator",
     "DeviceRepository",

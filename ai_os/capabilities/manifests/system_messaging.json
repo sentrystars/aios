@@ -1,0 +1,10 @@
+{
+  "name": "system_messaging",
+  "handler": "system_messaging",
+  "description": "Bridge AIOS message preparation or sending into the host messaging service.",
+  "risk_level": "high",
+  "confirmation_required": true,
+  "scopes": ["system_messaging:prepare", "system_messaging:send"],
+  "device_affinity": ["mac_local", "ios_remote"],
+  "evidence_outputs": ["System outbound message prepared"]
+}

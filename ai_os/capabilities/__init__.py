@@ -2,11 +2,21 @@ from __future__ import annotations
 
 from .base import CapabilityHandler
 from .local_files import LocalFilesCapability
-from .messaging import MessagingCapability, NotesCapability
+from .messaging import AIOSLocalMessagingCapability, MessagingCapability, NotesCapability, SystemMessagingCapability
 from .registry import CapabilityBus, CapabilityRegistry
-from .scheduling import CalendarCapability, RemindersCapability
+from .scheduling import (
+    AIOSLocalCalendarCapability,
+    AIOSLocalRemindersCapability,
+    CalendarCapability,
+    RemindersCapability,
+    SystemCalendarCapability,
+    SystemRemindersCapability,
+)
 
 __all__ = [
+    "AIOSLocalCalendarCapability",
+    "AIOSLocalMessagingCapability",
+    "AIOSLocalRemindersCapability",
     "CalendarCapability",
     "CapabilityBus",
     "CapabilityHandler",
@@ -15,4 +25,7 @@ __all__ = [
     "MessagingCapability",
     "NotesCapability",
     "RemindersCapability",
+    "SystemCalendarCapability",
+    "SystemMessagingCapability",
+    "SystemRemindersCapability",
 ]

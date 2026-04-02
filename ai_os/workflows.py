@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import json
 import re
 
 from ai_os.capabilities import CapabilityRegistry
@@ -121,6 +122,40 @@ class IntakeCoordinator:
         if matched_ids:
             return matched_ids
         return [goal for goal in profile.long_term_goals if goal and goal.lower() in goal_text_lower]
+
+
+class ConversationCoordinator:
+    def __init__(
+        self,
+        intake: IntakeCoordinator,
+        task_engine: TaskEngine,
+        delivery: DeliveryCoordinator,
+    ) -> None:
+        self.intake = intake
+        self.task_engine = task_engine
+        self.delivery = delivery
+
+    def submit(self, payload: InputPayload) -> IntakeResponse:
+        response = self.intake.process(payload)
+        task = response.task
+        if not task:
+            return response
+
+        current = task
+        if current.status == TaskStatus.CAPTURED:
+            current = self.task_engine.plan(current.id)
+
+        if current.status == TaskStatus.PLANNED:
+            current = self.delivery.execute_task(current.id)
+
+        if current.status in {TaskStatus.EXECUTING, TaskStatus.VERIFYING}:
+            current = self.delivery.verify_task(
+                current.id,
+                TaskVerificationPayload(verifier_notes="Auto-verified from conversation workflow."),
+            )
+
+        response.task = current
+        return response
 
 
 class DeliveryCoordinator:
@@ -448,7 +483,7 @@ class DeliveryCoordinator:
     def _execute_message_draft(self, task: TaskRecord, run_id: str) -> bool:
         result = self.execute_capability(
             CapabilityExecutionPayload(
-                capability_name="messaging",
+                capability_name="aios_local_messaging",
                 action="prepare",
                 parameters={"recipient": "pending", "message": task.objective},
             )
@@ -470,9 +505,14 @@ class DeliveryCoordinator:
     def _execute_reminder(self, task: TaskRecord, run_id: str) -> bool:
         if not self._allow_external_side_effect(task, run_id, "reminder.create"):
             return False
+        capability_name = (
+            task.execution_plan.steps[0].capability_name
+            if task.execution_plan.steps
+            else "aios_local_reminders"
+        )
         result = self.execute_capability(
             CapabilityExecutionPayload(
-                capability_name="reminders",
+                capability_name=capability_name,
                 action="create",
                 parameters={
                     "title": task.objective,
@@ -484,6 +524,17 @@ class DeliveryCoordinator:
                 },
             )
         )
+        if result.status != "ok":
+            task.status = TaskStatus.BLOCKED
+            task.blocker_reason = result.output
+            task.verification_notes.append(f"Reminder scheduling failed: {result.output}")
+            return False
+        if capability_name == "system_reminders":
+            payload = json.loads(result.output)
+            reminder_id = payload.get("system_reminder_id", "unknown")
+            task.verification_notes.append(f"Reminder scheduled: system:{reminder_id}")
+            self.relations.link("execution_run", run_id, "scheduled_reminder", "task", task.id, metadata=payload)
+            return True
         reminder = ReminderRecord.model_validate_json(result.output)
         task.verification_notes.append(f"Reminder scheduled: {reminder.id}")
         reminder_id = reminder.id
@@ -501,9 +552,14 @@ class DeliveryCoordinator:
         if not self._allow_external_side_effect(task, run_id, "calendar.create"):
             return False
         scheduled_for, due_hint = self._calendar_schedule_for(task)
+        capability_name = (
+            task.execution_plan.steps[0].capability_name
+            if task.execution_plan.steps
+            else "aios_local_calendar"
+        )
         result = self.execute_capability(
             CapabilityExecutionPayload(
-                capability_name="calendar",
+                capability_name=capability_name,
                 action="create",
                 parameters={
                     "title": task.objective,
@@ -515,6 +571,17 @@ class DeliveryCoordinator:
                 },
             )
         )
+        if result.status != "ok":
+            task.status = TaskStatus.BLOCKED
+            task.blocker_reason = result.output
+            task.verification_notes.append(f"Calendar scheduling failed: {result.output}")
+            return False
+        if capability_name == "system_calendar":
+            payload = json.loads(result.output)
+            event_uid = payload.get("system_event_uid", "unknown")
+            task.verification_notes.append(f"Calendar event scheduled: system:{event_uid}")
+            self.relations.link("execution_run", run_id, "scheduled_calendar_event", "task", task.id, metadata=payload)
+            return True
         event = CalendarEventRecord.model_validate_json(result.output)
         task.verification_notes.append(f"Calendar event scheduled: {event.id}")
         self.relations.link(

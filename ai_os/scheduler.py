@@ -342,7 +342,7 @@ class SchedulerService:
         stale_cutoff = now - timedelta(minutes=stale_after_minutes)
         reminders = json.loads(
             self.candidate_service.capability_bus.execute(
-                CapabilityExecutionPayload(capability_name="reminders", action="list", parameters={})
+                CapabilityExecutionPayload(capability_name="aios_local_reminders", action="list", parameters={})
             ).output
         )
         existing_source_ids = {
@@ -363,7 +363,7 @@ class SchedulerService:
                 continue
             self.candidate_service.capability_bus.execute(
                 CapabilityExecutionPayload(
-                    capability_name="reminders",
+                    capability_name="aios_local_reminders",
                     action="create",
                     parameters={
                         "title": f"Follow up stalled task: {task.objective}",
@@ -395,7 +395,7 @@ class SchedulerService:
         }
         existing_reminders = json.loads(
             self.candidate_service.capability_bus.execute(
-                CapabilityExecutionPayload(capability_name="reminders", action="list", parameters={})
+                CapabilityExecutionPayload(capability_name="aios_local_reminders", action="list", parameters={})
             ).output
         )
         reminders_by_source_id = {
@@ -443,7 +443,7 @@ class SchedulerService:
                 if existing_reminder:
                     self.candidate_service.capability_bus.execute(
                         CapabilityExecutionPayload(
-                            capability_name="reminders",
+                            capability_name="aios_local_reminders",
                             action="reschedule",
                             parameters={
                                 "id": existing_reminder["id"],
@@ -458,7 +458,7 @@ class SchedulerService:
                 else:
                     reminder_result = self.candidate_service.capability_bus.execute(
                         CapabilityExecutionPayload(
-                            capability_name="reminders",
+                            capability_name="aios_local_reminders",
                             action="create",
                             parameters={
                                 "title": f"Escalated review needed: {task.objective}",

@@ -153,6 +153,10 @@ struct APIClient {
         try await send(path: "/inbox/process", method: "POST", body: request)
     }
 
+    func submitConversation(_ request: InputRequest) async throws -> IntakeResponse {
+        try await send(path: "/conversation/submit", method: "POST", body: request)
+    }
+
     func fetchTaskTimeline(id: String, limit: Int = 40) async throws -> [TimelineItem] {
         try await send(path: "/tasks/\(id)/timeline?limit=\(limit)")
     }

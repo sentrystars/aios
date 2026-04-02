@@ -1,0 +1,10 @@
+{
+  "name": "aios_local_calendar",
+  "handler": "aios_local_calendar",
+  "description": "Create and inspect calendar events stored by AIOS inside the workspace.",
+  "risk_level": "medium",
+  "confirmation_required": false,
+  "scopes": ["aios_local_calendar:create", "aios_local_calendar:list", "aios_local_calendar:reschedule", "aios_local_calendar:delete", "aios_local_calendar:mark_seen"],
+  "device_affinity": ["mac_local", "ios_remote"],
+  "evidence_outputs": ["AIOS local calendar event scheduled"]
+}

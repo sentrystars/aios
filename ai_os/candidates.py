@@ -181,7 +181,7 @@ class CandidateTaskService:
 
         reminders = json.loads(
             self.capability_bus.execute(
-                CapabilityExecutionPayload(capability_name="reminders", action="list", parameters={})
+                CapabilityExecutionPayload(capability_name="aios_local_reminders", action="list", parameters={})
             ).output
         )
         due_reminders: list[dict] = []
@@ -216,7 +216,7 @@ class CandidateTaskService:
             if reminder.get("id"):
                 self.capability_bus.execute(
                     CapabilityExecutionPayload(
-                        capability_name="reminders",
+                        capability_name="aios_local_reminders",
                         action="mark_seen",
                         parameters={"id": reminder["id"], "seen_at": now.isoformat()},
                     )
@@ -224,7 +224,7 @@ class CandidateTaskService:
 
         calendar_events = json.loads(
             self.capability_bus.execute(
-                CapabilityExecutionPayload(capability_name="calendar", action="list", parameters={})
+                CapabilityExecutionPayload(capability_name="aios_local_calendar", action="list", parameters={})
             ).output
         )
         due_calendar_events: list[dict] = []
@@ -259,7 +259,7 @@ class CandidateTaskService:
             if event.get("id"):
                 self.capability_bus.execute(
                     CapabilityExecutionPayload(
-                        capability_name="calendar",
+                        capability_name="aios_local_calendar",
                         action="mark_seen",
                         parameters={"id": event["id"], "seen_at": now.isoformat()},
                     )
@@ -492,7 +492,7 @@ class CandidateTaskService:
             if reminder_id:
                 self.capability_bus.execute(
                     CapabilityExecutionPayload(
-                        capability_name="reminders",
+                        capability_name="aios_local_reminders",
                         action="delete",
                         parameters={"id": reminder_id},
                     )
@@ -500,7 +500,7 @@ class CandidateTaskService:
             if calendar_event_id:
                 self.capability_bus.execute(
                     CapabilityExecutionPayload(
-                        capability_name="calendar",
+                        capability_name="aios_local_calendar",
                         action="delete",
                         parameters={"id": calendar_event_id},
                     )
@@ -699,7 +699,7 @@ class CandidateTaskService:
 
         due_hint = payload.due_hint or str(payload.metadata.get("due_hint", "tomorrow"))
         scheduled_for = payload.scheduled_for.isoformat() if payload.scheduled_for else payload.metadata.get("scheduled_for")
-        capability_name = "calendar" if calendar_event_id else "reminders"
+        capability_name = "aios_local_calendar" if calendar_event_id else "aios_local_reminders"
         entity_id = calendar_event_id or reminder_id
         result = self.capability_bus.execute(
             CapabilityExecutionPayload(

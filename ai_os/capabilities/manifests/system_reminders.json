@@ -1,0 +1,10 @@
+{
+  "name": "system_reminders",
+  "handler": "system_reminders",
+  "description": "Bridge AIOS reminders into the host system reminder service.",
+  "risk_level": "medium",
+  "confirmation_required": false,
+  "scopes": ["system_reminders:create", "system_reminders:list", "system_reminders:reschedule"],
+  "device_affinity": ["mac_local", "ios_remote"],
+  "evidence_outputs": ["System reminder scheduled"]
+}

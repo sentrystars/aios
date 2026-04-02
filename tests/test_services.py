@@ -4,7 +4,9 @@ import json
 import os
 from tempfile import TemporaryDirectory
 import unittest
+import subprocess
 
+from ai_os.capabilities import SystemCalendarCapability, SystemRemindersCapability
 from ai_os.cloud_intelligence import CloudIntentHint
 from ai_os.env_loader import load_project_env
 from ai_os.domain import (
@@ -31,7 +33,7 @@ from ai_os.domain import (
     TaskVerificationPayload,
     utc_now,
 )
-from ai_os.services import CandidateTaskService, DeliveryCoordinator, EventQueryService, IntakeCoordinator, build_container
+from ai_os.services import CandidateTaskService, ConversationCoordinator, DeliveryCoordinator, EventQueryService, IntakeCoordinator, build_container
 from ai_os.kernel import CognitionEngine, IntentEngine
 from ai_os.policy import LifecycleHook, PolicyContext, PolicyRule
 from ai_os.runtimes import ClaudeCodeRuntime
@@ -58,6 +60,11 @@ class KernelServicesTest(unittest.TestCase):
             execution_run_service=self.container.execution_run_service,
             runtime_registry=self.container.runtime_registry,
             policy_engine=self.container.policy_engine,
+        )
+        self.conversation = ConversationCoordinator(
+            intake=self.intake,
+            task_engine=self.container.task_engine,
+            delivery=self.delivery,
         )
         self.events = EventQueryService(self.container.event_repo)
         self.candidates = CandidateTaskService(
@@ -175,6 +182,91 @@ class KernelServicesTest(unittest.TestCase):
             else:
                 os.environ["DEEPSEEK_MODEL"] = previous_model
 
+    def test_capability_registry_exposes_local_and_system_scheduling_layers(self) -> None:
+        capability_names = {capability.name for capability in self.container.capability_bus.list()}
+
+        self.assertIn("aios_local_calendar", capability_names)
+        self.assertIn("aios_local_reminders", capability_names)
+        self.assertIn("aios_local_messaging", capability_names)
+        self.assertIn("system_calendar", capability_names)
+        self.assertIn("system_reminders", capability_names)
+        self.assertIn("system_messaging", capability_names)
+
+    def test_system_calendar_capability_is_explicitly_unavailable(self) -> None:
+        result = self.delivery.execute_capability(
+            CapabilityExecutionPayload(capability_name="system_calendar", action="create", parameters={"title": "Review"})
+        )
+
+        self.assertEqual(result.status, "unavailable")
+        self.assertIn("disabled", result.output)
+
+    def test_system_calendar_capability_can_create_event_when_enabled(self) -> None:
+        captured_scripts: list[list[str]] = []
+
+        def fake_runner(script_lines: list[str]) -> subprocess.CompletedProcess[str]:
+            captured_scripts.append(script_lines)
+            return subprocess.CompletedProcess(
+                args=["osascript"],
+                returncode=0,
+                stdout="system-event-123\n",
+                stderr="",
+            )
+
+        capability = SystemCalendarCapability(enabled=True, platform="darwin", command_runner=fake_runner)
+        result = capability.execute(
+            CapabilityExecutionPayload(
+                capability_name="system_calendar",
+                action="create",
+                parameters={
+                    "title": "Architecture Review",
+                    "note": "Created from test",
+                    "scheduled_for": "2026-04-02T17:00:00+00:00",
+                    "duration_minutes": 45,
+                },
+            )
+        )
+
+        self.assertEqual(result.status, "ok")
+        self.assertTrue(captured_scripts)
+        self.assertIn("system-event-123", result.output)
+
+    def test_system_reminders_capability_is_explicitly_unavailable(self) -> None:
+        result = self.delivery.execute_capability(
+            CapabilityExecutionPayload(capability_name="system_reminders", action="create", parameters={"title": "Review"})
+        )
+
+        self.assertEqual(result.status, "unavailable")
+        self.assertIn("disabled", result.output)
+
+    def test_system_reminders_capability_can_create_reminder_when_enabled(self) -> None:
+        captured_scripts: list[list[str]] = []
+
+        def fake_runner(script_lines: list[str]) -> subprocess.CompletedProcess[str]:
+            captured_scripts.append(script_lines)
+            return subprocess.CompletedProcess(
+                args=["osascript"],
+                returncode=0,
+                stdout="system-reminder-123\n",
+                stderr="",
+            )
+
+        capability = SystemRemindersCapability(enabled=True, platform="darwin", command_runner=fake_runner)
+        result = capability.execute(
+            CapabilityExecutionPayload(
+                capability_name="system_reminders",
+                action="create",
+                parameters={
+                    "title": "Architecture Review",
+                    "note": "Created from test",
+                    "scheduled_for": "2026-04-02T17:00:00+00:00",
+                },
+            )
+        )
+
+        self.assertEqual(result.status, "ok")
+        self.assertTrue(captured_scripts)
+        self.assertIn("system-reminder-123", result.output)
+
     def test_self_update_emits_event_and_timeline(self) -> None:
         profile = self.container.self_kernel.get()
         profile.current_phase = "execution"
@@ -277,28 +369,79 @@ class KernelServicesTest(unittest.TestCase):
         self.assertTrue(response.cognition.suggested_execution_plan.confirmation_required)
         self.assertIsNotNone(response.task)
         self.assertEqual(response.task.execution_mode, ExecutionMode.MESSAGE_DRAFT)
-        self.assertEqual(response.task.execution_plan.steps[0].capability_name, "messaging")
+        self.assertEqual(response.task.execution_plan.steps[0].capability_name, "aios_local_messaging")
 
     def test_intake_assigns_reminder_execution_mode(self) -> None:
         response = self.intake.process(InputPayload(text="Remind me to review the AI OS roadmap"))
         self.assertEqual(response.cognition.suggested_execution_mode, ExecutionMode.REMINDER)
-        self.assertEqual(response.cognition.suggested_execution_plan.steps[0].capability_name, "reminders")
+        self.assertEqual(response.cognition.suggested_execution_plan.steps[0].capability_name, "aios_local_reminders")
         self.assertIsNotNone(response.task)
         self.assertEqual(response.task.execution_mode, ExecutionMode.REMINDER)
+
+    def test_intake_routes_explicit_system_reminder_request_to_system_reminders(self) -> None:
+        response = self.intake.process(InputPayload(text="添加到系统提醒：今天下午5点提醒我开会"))
+
+        self.assertIsNotNone(response.task)
+        self.assertEqual(response.task.execution_mode, ExecutionMode.REMINDER)
+        self.assertEqual(response.task.execution_plan.steps[0].capability_name, "system_reminders")
+        self.assertEqual(response.task.implementation_contract.execution_scope, "system_reminders")
+        self.assertIn("target:system_reminders", response.task.tags)
 
     def test_intake_assigns_calendar_execution_mode(self) -> None:
         response = self.intake.process(InputPayload(text="Schedule time block for AI OS roadmap review"))
         self.assertEqual(response.cognition.suggested_execution_mode, ExecutionMode.CALENDAR_EVENT)
-        self.assertEqual(response.cognition.suggested_execution_plan.steps[0].capability_name, "calendar")
+        self.assertEqual(response.cognition.suggested_execution_plan.steps[0].capability_name, "aios_local_calendar")
         self.assertIsNotNone(response.task)
         self.assertEqual(response.task.execution_mode, ExecutionMode.CALENDAR_EVENT)
 
     def test_intake_assigns_calendar_execution_mode_for_chinese_request(self) -> None:
         response = self.intake.process(InputPayload(text="在日历中增加日程：下午1点进行产品评审"))
         self.assertEqual(response.cognition.suggested_execution_mode, ExecutionMode.CALENDAR_EVENT)
-        self.assertEqual(response.cognition.suggested_execution_plan.steps[0].capability_name, "calendar")
+        self.assertEqual(response.cognition.suggested_execution_plan.steps[0].capability_name, "aios_local_calendar")
         self.assertIsNotNone(response.task)
         self.assertEqual(response.task.execution_mode, ExecutionMode.CALENDAR_EVENT)
+
+    def test_intake_routes_explicit_system_calendar_request_to_system_calendar(self) -> None:
+        response = self.intake.process(InputPayload(text="添加到系统日历：今天下午5点开会"))
+
+        self.assertIsNotNone(response.task)
+        self.assertEqual(response.task.execution_mode, ExecutionMode.CALENDAR_EVENT)
+        self.assertEqual(response.task.execution_plan.steps[0].capability_name, "system_calendar")
+        self.assertEqual(response.task.implementation_contract.execution_scope, "system_calendar")
+        self.assertIn("target:system_calendar", response.task.tags)
+
+    def test_conversation_workflow_auto_advances_calendar_task_in_backend(self) -> None:
+        response = self.conversation.submit(InputPayload(text="在日历中增加日程：下午1点进行产品评审"))
+
+        self.assertIsNotNone(response.task)
+        self.assertEqual(response.task.status, TaskStatus.DONE)
+        store_path = Path(self.tempdir.name) / ".ai_os" / "calendar_events.json"
+        self.assertTrue(store_path.exists())
+        events = json.loads(store_path.read_text(encoding="utf-8"))
+        self.assertTrue(any(item["title"] == "在日历中增加日程：下午1点进行产品评审" for item in events))
+
+    def test_conversation_workflow_blocks_when_system_calendar_bridge_is_disabled(self) -> None:
+        response = self.conversation.submit(InputPayload(text="添加到系统日历：今天下午5点开会"))
+
+        self.assertIsNotNone(response.task)
+        self.assertEqual(response.task.execution_plan.steps[0].capability_name, "system_calendar")
+        self.assertEqual(response.task.status, TaskStatus.BLOCKED)
+        self.assertIn("System calendar bridge is disabled", response.task.blocker_reason)
+
+    def test_conversation_workflow_blocks_when_system_reminders_bridge_is_disabled(self) -> None:
+        response = self.conversation.submit(InputPayload(text="添加到系统提醒：今天下午5点提醒我开会"))
+
+        self.assertIsNotNone(response.task)
+        self.assertEqual(response.task.execution_plan.steps[0].capability_name, "system_reminders")
+        self.assertEqual(response.task.status, TaskStatus.BLOCKED)
+        self.assertIn("System reminders bridge is disabled", response.task.blocker_reason)
+
+    def test_conversation_workflow_blocks_message_task_pending_confirmation(self) -> None:
+        response = self.conversation.submit(InputPayload(text="Message Alice about the AI OS progress"))
+
+        self.assertIsNotNone(response.task)
+        self.assertEqual(response.task.status, TaskStatus.BLOCKED)
+        self.assertEqual(response.task.blocker_reason, "Awaiting user confirmation to send drafted message.")
 
     def test_intake_uses_learned_execution_mode_preference(self) -> None:
         completed = self.container.task_engine.create(TaskCreatePayload(objective="Capture deep work scheduling preference"))
@@ -616,7 +759,7 @@ class KernelServicesTest(unittest.TestCase):
         devices = self.container.device_service.list()
         self.assertTrue(devices)
         self.assertEqual(devices[0].device_class, "mac_local")
-        self.assertIn("calendar", devices[0].capabilities)
+        self.assertIn("aios_local_calendar", devices[0].capabilities)
 
     def test_runtime_registry_lists_claude_code_runtime(self) -> None:
         runtimes = self.container.runtime_registry.list()
@@ -2554,7 +2697,11 @@ class KernelServicesTest(unittest.TestCase):
         planned_second.updated_at = utc_now() + timedelta(seconds=1)
         self.container.task_engine.repo.update(planned_second)
 
-        tasks = [task for task in self.container.task_engine.list() if any(step.capability_name == "messaging" for step in task.execution_plan.steps)]
+        tasks = [
+            task
+            for task in self.container.task_engine.list()
+            if any(step.capability_name == "aios_local_messaging" for step in task.execution_plan.steps)
+        ]
         tasks.sort(key=lambda item: item.updated_at, reverse=True)
 
         self.assertEqual(tasks[0].id, second.id)
